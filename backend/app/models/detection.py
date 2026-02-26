@@ -36,9 +36,8 @@ class DetectionResult(Base):
     plag_ngram_similarity = Column(Float, default=0.0)
     plag_ast_similarity = Column(Float, default=0.0)
     plag_final_score = Column(Float, default=0.0)
-    plag_matched_submission = Column(
+    plag_matched_submission_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("submissions.id"),
         nullable=True
     )
 
@@ -51,7 +50,7 @@ class DetectionResult(Base):
         server_default=func.now()
     )
 
-    # Relationships
+    # Relationship
     submission = relationship(
         "Submission",
         back_populates="detection_result",
