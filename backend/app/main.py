@@ -3,7 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.core.database import engine, Base
-
+from app.models import (
+    User, Test, Question, TestCase,
+    Session, Submission, DetectionResult,
+    Ranking, KeystrokeEvent
+)
 # Import all routers
 from app.routers import auth
 from app.routers import tests
