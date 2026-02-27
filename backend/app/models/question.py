@@ -24,6 +24,8 @@ class Question(Base):
     order_index = Column(Integer, nullable=False, default=1)
     constraints = Column(Text, nullable=True)
     examples = Column(JSONB, nullable=True)
+    function_signature = Column(Text, nullable=True)
+    driver_code = Column(Text, nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now()

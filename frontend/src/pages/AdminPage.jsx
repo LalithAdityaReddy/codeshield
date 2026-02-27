@@ -26,6 +26,8 @@ export default function AdminPage() {
     difficulty: "Medium",
     order_index: 1,
     constraints: "",
+    function_signature: "",
+    driver_code: "",
     test_cases: [{ input: "", expected_output: "", is_hidden: false }],
   });
 
@@ -297,13 +299,38 @@ export default function AdminPage() {
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>Constraints</label>
-                    <input
-                      type="text"
-                      value={questionForm.constraints}
-                      onChange={(e) => setQuestionForm({ ...questionForm, constraints: e.target.value })}
-                      placeholder="e.g. 1 <= n <= 1000"
-                      style={styles.input}
-                    />
+                    <textarea
+  value={questionForm.constraints}
+  onChange={(e) => setQuestionForm({ ...questionForm, constraints: e.target.value })}
+  placeholder="e.g. 1 <= n <= 1000&#10;0 <= arr[i] <= 100&#10;1 <= k <= n"
+  style={{ ...styles.input, height: "80px", resize: "vertical" }}
+/>
+<div style={styles.field}>
+  <label style={styles.label}>Function Signature</label>
+  <input
+    type="text"
+    value={questionForm.function_signature}
+    onChange={(e) => setQuestionForm({ ...questionForm, function_signature: e.target.value })}
+    placeholder="def numSteps(self, s: str) -> int:"
+    style={styles.input}
+  />
+  <span style={{ color: "#555", fontSize: "11px", marginTop: "4px" }}>
+    This is shown to candidate as starter code
+  </span>
+</div>
+
+<div style={styles.field}>
+  <label style={styles.label}>Driver Code (Hidden from candidate)</label>
+  <textarea
+    value={questionForm.driver_code}
+    onChange={(e) => setQuestionForm({ ...questionForm, driver_code: e.target.value })}
+    placeholder={`result = sol.numSteps(__INPUT__)\nprint(result)`}
+    style={{ ...styles.input, height: "80px", resize: "vertical", fontFamily: "monospace", fontSize: "12px" }}
+  />
+  <span style={{ color: "#555", fontSize: "11px", marginTop: "4px" }}>
+    Use __INPUT__ as placeholder for test case input
+  </span>
+</div>
                   </div>
 
                   {/* Test Cases */}

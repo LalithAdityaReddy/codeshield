@@ -6,20 +6,28 @@ import { getTestById, startTestSession, getQuestions } from "../services/testSer
 import { submitCode } from "../services/submissionService";
 import { formatTime } from "../utils/formatTime";
 import useAuthStore from "../store/authStore";
+import Proctoring from "../components/Proctoring";
+import { monitoringSocket } from "../sockets/monitoringSocket";
 
 const LANGUAGES = ["python3", "javascript", "java", "cpp"];
 
-const STARTER_CODE = {
-  python3: "# Write your solution here\n\ndef solution():\n    pass\n",
-  javascript: "// Write your solution here\n\nfunction solution() {\n    \n}\n",
-  java: "// Write your solution here\n\nclass Solution {\n    public void solution() {\n        \n    }\n}\n",
-  cpp: "// Write your solution here\n\n#include <iostream>\nusing namespace std;\n\nint main() {\n    \n    return 0;\n}\n",
+const getStarterCode = (question, lang) => {
+  if (question?.function_signature && lang === "python3") {
+    return `class Solution:\n    ${question.function_signature}\n        # Write your solution here\n        pass\n`;
+  }
+  const defaults = {
+    python3: "class Solution:\n    def solve(self):\n        # Write your solution here\n        pass\n",
+    javascript: "// Write your solution here\n\nfunction solution() {\n    \n}\n",
+    java: "class Solution {\n    public void solution() {\n        \n    }\n}\n",
+    cpp: "#include <bits/stdc++.h>\nusing namespace std;\n\nclass Solution {\npublic:\n    void solution() {\n        \n    }\n};\n",
+  };
+  return defaults[lang] || "";
 };
 
 export default function ExamPage() {
   const { testId } = useParams();
   const navigate = useNavigate();
-  const { user, logout } = useAuthStore();
+  const { user } = useAuthStore();
 
   const [test, setTest] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -27,11 +35,12 @@ export default function ExamPage() {
   const [sessionId, setSessionId] = useState(null);
   const [timeLeft, setTimeLeft] = useState(3600);
   const [language, setLanguage] = useState("python3");
-  const [code, setCode] = useState(STARTER_CODE["python3"]);
+  const [code, setCode] = useState("class Solution:\n    def solve(self):\n        # Write your solution here\n        pass\n");
   const [bottomTab, setBottomTab] = useState("testcase");
   const [testInput, setTestInput] = useState("");
   const [results, setResults] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [leftWidth, setLeftWidth] = useState(40);
   const isDragging = useRef(false);
@@ -43,7 +52,7 @@ export default function ExamPage() {
   useEffect(() => {
     if (timeLeft <= 0) {
       toast.error("Time is up!");
-      navigate("/dashboard");
+      stopCameraAndNavigate("/dashboard");
       return;
     }
     const timer = setInterval(() => {
@@ -51,6 +60,14 @@ export default function ExamPage() {
     }, 1000);
     return () => clearInterval(timer);
   }, [timeLeft]);
+
+  const stopCameraAndNavigate = (path) => {
+    monitoringSocket.disconnect();
+    if (window._stopProctoring) {
+      window._stopProctoring();
+    }
+    navigate(path);
+  };
 
   const initExam = async () => {
     try {
@@ -65,6 +82,10 @@ export default function ExamPage() {
       setQuestions(questionsData);
       if (questionsData.length > 0) {
         setTestInput("");
+        setCode(getStarterCode(questionsData[0], "python3"));
+        const token = localStorage.getItem("token");
+        monitoringSocket.connect(session.session_id, token);
+        monitoringSocket.setQuestion(questionsData[0].id);
       }
     } catch (err) {
       toast.error("Failed to load exam");
@@ -76,7 +97,31 @@ export default function ExamPage() {
 
   const handleLanguageChange = (lang) => {
     setLanguage(lang);
-    setCode(STARTER_CODE[lang]);
+    setCode(getStarterCode(questions[currentQuestion], lang));
+  };
+
+  const handleRun = async () => {
+    if (!sessionId || !questions[currentQuestion]) return;
+    setIsRunning(true);
+    setBottomTab("results");
+    try {
+      const result = await submitCode(
+        sessionId,
+        questions[currentQuestion].id,
+        code,
+        language
+      );
+      setResults(result);
+      if (result.status === "accepted") {
+        toast.success("All test cases passed.");
+      } else {
+        toast.error(`${result.test_cases_passed}/${result.test_cases_total} test cases passed`);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Run failed");
+    } finally {
+      setIsRunning(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -103,24 +148,17 @@ export default function ExamPage() {
     }
   };
 
-  const handleMouseDown = () => {
-    isDragging.current = true;
+  const handleEndTest = () => {
+    stopCameraAndNavigate("/dashboard");
   };
 
+  const handleMouseDown = () => { isDragging.current = true; };
   const handleMouseMove = (e) => {
     if (!isDragging.current) return;
     const pct = (e.clientX / window.innerWidth) * 100;
     setLeftWidth(Math.max(25, Math.min(65, pct)));
   };
-
-  const handleMouseUp = () => {
-    isDragging.current = false;
-  };
-
-  const handleLogout = () => {
-    logout();
-    navigate("/login");
-  };
+  const handleMouseUp = () => { isDragging.current = false; };
 
   if (loading) {
     return (
@@ -153,7 +191,11 @@ export default function ExamPage() {
           {questions.map((q, i) => (
             <button
               key={q.id}
-              onClick={() => setCurrentQuestion(i)}
+              onClick={() => {
+                setCurrentQuestion(i);
+                setCode(getStarterCode(questions[i], language));
+                monitoringSocket.setQuestion(questions[i].id);
+              }}
               style={{
                 ...styles.qBtn,
                 background: i === currentQuestion ? "#f89f1b22" : "none",
@@ -174,38 +216,38 @@ export default function ExamPage() {
             {formatTime(timeLeft)}
           </div>
           <button
+            onClick={handleRun}
+            disabled={isRunning || submitting}
+            style={{ ...styles.runBtn, opacity: isRunning ? 0.7 : 1 }}
+          >
+            {isRunning ? "Running..." : "Run"}
+          </button>
+          <button
             onClick={handleSubmit}
-            disabled={submitting}
-            style={{
-              ...styles.submitBtn,
-              opacity: submitting ? 0.7 : 1,
-            }}
+            disabled={submitting || isRunning}
+            style={{ ...styles.submitBtn, opacity: submitting ? 0.7 : 1 }}
           >
             {submitting ? "Submitting..." : "Submit"}
           </button>
-          <button onClick={handleLogout} style={styles.logoutBtn}>
-            Exit
+          <button onClick={handleEndTest} style={styles.endBtn}>
+            End Test
           </button>
         </div>
       </div>
 
       {/* Main Split Panel */}
       <div style={styles.main}>
-        {/* Left Panel - Problem Description */}
+        {/* Left Panel */}
         <div style={{ width: `${leftWidth}%`, ...styles.leftPanel }}>
-          {/* Problem Tabs */}
           <div style={styles.panelTabs}>
             <span style={styles.activeTabLabel}>Description</span>
           </div>
-
-          {/* Problem Content */}
           <div style={styles.problemContent}>
             {question ? (
               <>
                 <h2 style={styles.problemTitle}>
                   {currentQuestion + 1}. {question.title}
                 </h2>
-
                 <div style={styles.difficultyRow}>
                   <span style={{
                     ...styles.difficulty,
@@ -217,16 +259,13 @@ export default function ExamPage() {
                     {question.difficulty}
                   </span>
                 </div>
-
                 <p style={styles.description}>{question.description}</p>
-
                 {question.constraints && (
                   <div style={styles.section}>
                     <p style={styles.sectionTitle}>Constraints:</p>
                     <p style={styles.constraintText}>{question.constraints}</p>
                   </div>
                 )}
-
                 {question.examples && question.examples.length > 0 && (
                   <div style={styles.section}>
                     <p style={styles.sectionTitle}>Examples:</p>
@@ -258,14 +297,10 @@ export default function ExamPage() {
         </div>
 
         {/* Divider */}
-        <div
-          onMouseDown={handleMouseDown}
-          style={styles.dividerBar}
-        />
+        <div onMouseDown={handleMouseDown} style={styles.dividerBar} />
 
-        {/* Right Panel - Editor */}
+        {/* Right Panel */}
         <div style={{ flex: 1, ...styles.rightPanel }}>
-          {/* Editor Header */}
           <div style={styles.editorHeader}>
             <div style={styles.editorTabs}>
               <span style={styles.editorTabActive}>Code</span>
@@ -283,13 +318,22 @@ export default function ExamPage() {
             </div>
           </div>
 
-          {/* Monaco Editor */}
           <div style={{ flex: 1, overflow: "hidden" }}>
             <Editor
               height="100%"
-              language={language === "python3" ? "python" : language === "cpp" ? "cpp" : language}
+              language={language === "python3" ? "python" : language}
               value={code}
-              onChange={(val) => setCode(val || "")}
+              onChange={(val) => {
+                const prev = code;
+                const newCode = val || "";
+                const diff = newCode.length - prev.length;
+                if (diff > 10) {
+                  monitoringSocket.logPaste(newCode.length, diff);
+                } else if (diff > 0) {
+                  monitoringSocket.logKeypress("char", newCode.length);
+                }
+                setCode(newCode);
+              }}
               theme="vs-dark"
               options={{
                 fontSize: 14,
@@ -307,7 +351,6 @@ export default function ExamPage() {
 
           {/* Bottom Panel */}
           <div style={styles.bottomPanel}>
-            {/* Bottom Tabs */}
             <div style={styles.bottomTabs}>
               <button
                 onClick={() => setBottomTab("testcase")}
@@ -331,7 +374,6 @@ export default function ExamPage() {
               </button>
             </div>
 
-            {/* Bottom Content */}
             <div style={styles.bottomContent}>
               {bottomTab === "testcase" && (
                 <div>
@@ -344,7 +386,6 @@ export default function ExamPage() {
                   />
                 </div>
               )}
-
               {bottomTab === "results" && (
                 <div>
                   {!results ? (
@@ -368,7 +409,6 @@ export default function ExamPage() {
                           </span>
                         )}
                       </div>
-
                       <div style={styles.testCaseList}>
                         {results.results?.filter(r => !r.is_hidden).map((r, i) => (
                           <div key={i} style={{
@@ -401,6 +441,17 @@ export default function ExamPage() {
           </div>
         </div>
       </div>
+
+      {/* Proctoring */}
+      {sessionId && (
+        <Proctoring
+          sessionId={sessionId}
+          onDisqualified={() => {
+            toast.error("Disqualified due to multiple violations.");
+            stopCameraAndNavigate("/dashboard");
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -447,13 +498,19 @@ const styles = {
     background: "#2d2d2d", padding: "4px 12px",
     borderRadius: "6px", border: "1px solid #3a3a3a",
   },
+  runBtn: {
+    background: "#2d3748", border: "1px solid #4a5568",
+    color: "#e2e8f0", padding: "6px 14px",
+    borderRadius: "6px", fontSize: "13px",
+    fontWeight: "600", cursor: "pointer",
+  },
   submitBtn: {
     background: "#1a472a", border: "1px solid #2d6a4f",
     color: "#4ade80", padding: "6px 16px",
     borderRadius: "6px", fontSize: "13px",
     fontWeight: "600", cursor: "pointer",
   },
-  logoutBtn: {
+  endBtn: {
     background: "#3a2d2d", border: "1px solid #5a3a3a",
     color: "#f87171", padding: "6px 12px",
     borderRadius: "6px", fontSize: "12px", cursor: "pointer",
@@ -474,9 +531,7 @@ const styles = {
     fontWeight: "600", borderBottom: "2px solid #f89f1b",
     paddingBottom: "2px",
   },
-  problemContent: {
-    flex: 1, overflowY: "auto", padding: "20px",
-  },
+  problemContent: { flex: 1, overflowY: "auto", padding: "20px" },
   problemTitle: {
     fontSize: "17px", fontWeight: "700",
     color: "#e0e0e0", marginBottom: "12px", lineHeight: 1.4,
@@ -520,9 +575,7 @@ const styles = {
     width: "4px", cursor: "col-resize",
     background: "#2d2d2d", flexShrink: 0,
   },
-  rightPanel: {
-    display: "flex", flexDirection: "column", overflow: "hidden",
-  },
+  rightPanel: { display: "flex", flexDirection: "column", overflow: "hidden" },
   editorHeader: {
     height: "42px", background: "#222",
     borderBottom: "1px solid #3a3a3a",
@@ -531,10 +584,7 @@ const styles = {
     padding: "0 12px", flexShrink: 0,
   },
   editorTabs: { display: "flex", alignItems: "center" },
-  editorTabActive: {
-    color: "#e0e0e0", fontSize: "13px",
-    fontWeight: "600",
-  },
+  editorTabActive: { color: "#e0e0e0", fontSize: "13px", fontWeight: "600" },
   editorControls: { display: "flex", alignItems: "center", gap: "8px" },
   langSelect: {
     background: "#2d2d2d", border: "1px solid #3a3a3a",
@@ -575,16 +625,12 @@ const styles = {
   resultMeta: { color: "#888", fontSize: "12px" },
   testCaseList: { display: "flex", flexDirection: "column", gap: "8px" },
   testCaseItem: {
-    background: "#252525", borderRadius: "6px",
-    padding: "10px 12px",
+    background: "#252525", borderRadius: "6px", padding: "10px 12px",
   },
   tcRow: {
     display: "flex", gap: "8px",
     marginBottom: "3px", alignItems: "center",
   },
   tcLabel: { color: "#666", fontSize: "12px", minWidth: "70px" },
-  tcCode: {
-    color: "#e0e0e0", fontSize: "12px",
-    fontFamily: "monospace",
-  },
+  tcCode: { color: "#e0e0e0", fontSize: "12px", fontFamily: "monospace" },
 };

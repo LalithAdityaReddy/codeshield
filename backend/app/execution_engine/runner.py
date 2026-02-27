@@ -3,19 +3,92 @@ from sqlalchemy import select
 from app.models.question import Question, TestCase
 from app.models.submission import Submission
 from app.execution_engine.sandbox import run_code_in_sandbox
+import json
+
+
+def wrap_python_code(user_code: str, driver_code: str, input_data: str) -> str:
+    return f"""
+import json
+import sys
+
+{user_code}
+
+# Driver
+{driver_code}
+"""
+
+
+def wrap_javascript_code(user_code: str, driver_code: str, input_data: str) -> str:
+    return f"""
+{user_code}
+
+// Driver
+{driver_code}
+"""
+
+
+def wrap_java_code(user_code: str, driver_code: str) -> str:
+    return f"""
+import java.util.*;
+import java.io.*;
+
+{user_code}
+
+class Main {{
+    public static void main(String[] args) throws Exception {{
+        {driver_code}
+    }}
+}}
+"""
+
+
+def wrap_cpp_code(user_code: str, driver_code: str) -> str:
+    return f"""
+#include <bits/stdc++.h>
+using namespace std;
+
+{user_code}
+
+int main() {{
+    {driver_code}
+    return 0;
+}}
+"""
+
+
+def build_python_driver(test_input: str) -> str:
+    return f"""
+try:
+    sol = Solution()
+    inputs = {test_input}
+    if isinstance(inputs, list):
+        result = sol.solve(*inputs)
+    else:
+        result = sol.solve(inputs)
+    print(result)
+except Exception as e:
+    print(f"Error: {{e}}", file=sys.stderr)
+    sys.exit(1)
+"""
 
 
 async def run_submission(
     submission: Submission,
     db: AsyncSession
 ) -> dict:
-    # Get question and test cases
+    # Get question
     result = await db.execute(
+        select(Question).where(Question.id == submission.question_id)
+    )
+    question = result.scalar_one_or_none()
+
+    # Get test cases
+    tc_result = await db.execute(
         select(TestCase)
         .where(TestCase.question_id == submission.question_id)
         .order_by(TestCase.is_hidden)
     )
-    test_cases = result.scalars().all()
+    test_cases = tc_result.scalars().all()
 
     if not test_cases:
         return {
@@ -32,8 +105,31 @@ async def run_submission(
     max_runtime = 0
 
     for tc in test_cases:
+        # Build the code to execute
+        if question and question.driver_code:
+            # Use custom driver code from admin
+            if submission.language == "python3":
+                final_code = f"""
+import json
+import sys
+
+{submission.code}
+
+try:
+    sol = Solution()
+    {question.driver_code.replace("__INPUT__", repr(tc.input))}
+except Exception as e:
+    print(f"Error: {{e}}", file=sys.stderr)
+    sys.exit(1)
+"""
+            else:
+                final_code = submission.code
+        else:
+            # Default: treat code as full program
+            final_code = submission.code
+
         execution = await run_code_in_sandbox(
-            code=submission.code,
+            code=final_code,
             language=submission.language,
             input_data=tc.input
         )
@@ -72,7 +168,6 @@ async def run_submission(
             "is_hidden": tc.is_hidden
         })
 
-    # Determine final status
     if passed == total:
         final_status = "accepted"
     else:

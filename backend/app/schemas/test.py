@@ -16,6 +16,8 @@ class QuestionCreate(BaseModel):
     order_index: int = 1
     constraints: Optional[str] = None
     examples: Optional[list] = None
+    function_signature: Optional[str] = None
+    driver_code: Optional[str] = None
     test_cases: List[TestCaseSchema] = []
 
 
@@ -28,6 +30,7 @@ class QuestionResponse(BaseModel):
     order_index: int
     constraints: Optional[str] = None
     examples: Optional[list] = None
+    function_signature: Optional[str] = None
 
     class Config:
         from_attributes = True
