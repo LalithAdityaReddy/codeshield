@@ -73,6 +73,11 @@ async def create_submission(
 
     await db.flush()
 
+# Run detection only on accepted submissions
+    if submission.status == "accepted":
+        from app.services.analytics_service import run_plagiarism_check
+        await run_plagiarism_check(str(submission.id), db)
+
     return {
         "id": str(submission.id),
         "question_id": str(submission.question_id),
