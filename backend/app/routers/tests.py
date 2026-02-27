@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin
 from app.schemas.test import TestCreate, TestResponse, TestDetailResponse
 from app.services.test_service import create_test, get_all_tests, get_test_by_id
 from app.models.user import User
-
+from app.models.test import Test
+from app.models.session import Session
 router = APIRouter()
 
 
@@ -80,4 +82,56 @@ async def get_test(
             for q in test.questions
         ],
         "created_at": test.created_at
+    }
+@router.post("/{test_id}/start", response_model=dict)
+async def start_test_session(
+    test_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # Check test exists
+    result = await db.execute(
+        select(Test).where(Test.id == test_id)
+    )
+    test = result.scalar_one_or_none()
+
+    if not test:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Test not found"
+        )
+
+    # Check if session already exists
+    result = await db.execute(
+        select(Session).where(
+            Session.user_id == current_user.id,
+            Session.test_id == test_id
+        )
+    )
+    existing_session = result.scalar_one_or_none()
+
+    if existing_session:
+        return {
+            "session_id": str(existing_session.id),
+            "status": existing_session.status,
+            "time_remaining": existing_session.time_remaining or test.duration_mins * 60
+        }
+
+    # Create new session
+    new_session = Session(
+        user_id=current_user.id,
+        test_id=test_id,
+        status="in_progress",
+        time_remaining=test.duration_mins * 60
+    )
+
+    db.add(new_session)
+    await db.flush()
+    await db.refresh(new_session)
+
+    return {
+        "session_id": str(new_session.id),
+        "status": new_session.status,
+        "time_remaining": new_session.time_remaining
     }
