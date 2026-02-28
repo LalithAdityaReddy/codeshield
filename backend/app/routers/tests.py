@@ -135,3 +135,70 @@ async def start_test_session(
         "status": new_session.status,
         "time_remaining": new_session.time_remaining
     }
+@router.post("/{test_id}/start")
+async def start_session(
+    test_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    from datetime import datetime, timezone, timedelta
+
+    # Check for existing session
+    result = await db.execute(
+        select(Session).where(
+            Session.test_id == test_id,
+            Session.user_id == current_user.id
+        ).order_by(Session.started_at.desc())
+    )
+    existing = result.scalars().first()
+
+    if existing:
+        now = datetime.now(timezone.utc)
+
+        # If session is in progress — return it
+        if existing.status == "in_progress":
+            time_elapsed = (now - existing.started_at.replace(tzinfo=timezone.utc)).total_seconds()
+            test_result = await db.execute(select(Test).where(Test.id == test_id))
+            test = test_result.scalar_one_or_none()
+            duration_seconds = (test.duration_mins if test else 60) * 60
+            time_remaining = max(0, duration_seconds - int(time_elapsed))
+            return {
+                "session_id": str(existing.id),
+                "status": existing.status,
+                "time_remaining": time_remaining
+            }
+
+        # If completed — check 24hr cooldown
+        if existing.status == "completed":
+            completed_at = existing.submitted_at or existing.started_at
+            if completed_at.tzinfo is None:
+                completed_at = completed_at.replace(tzinfo=timezone.utc)
+            time_since = now - completed_at
+            if time_since < timedelta(hours=24):
+                hours_left = 24 - int(time_since.total_seconds() / 3600)
+                minutes_left = 60 - int((time_since.total_seconds() % 3600) / 60)
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"You can attempt this test again in {hours_left}h {minutes_left}m"
+                )
+
+    # Create new session
+    test_result = await db.execute(select(Test).where(Test.id == test_id))
+    test = test_result.scalar_one_or_none()
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+
+    new_session = Session(
+        test_id=test_id,
+        user_id=current_user.id,
+        status="in_progress",
+        duration_mins=test.duration_mins
+    )
+    db.add(new_session)
+    await db.flush()
+
+    return {
+        "session_id": str(new_session.id),
+        "status": "in_progress",
+        "time_remaining": test.duration_mins * 60
+    }

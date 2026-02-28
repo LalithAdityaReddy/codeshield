@@ -30,8 +30,18 @@ export default function Dashboard() {
     navigate("/login");
   };
 
-  const handleStartTest = (testId) => {
-    navigate(`/exam/${testId}`);
+  const handleStartTest = async (testId) => {
+    try {
+      await startTestSession(testId);
+      navigate(`/exam/${testId}`);
+    } catch (err) {
+      const msg = err.response?.data?.detail;
+      if (msg && msg.includes("attempt this test again in")) {
+        toast.error(msg);
+      } else {
+        navigate(`/exam/${testId}`);
+      }
+    }
   };
 
   return (
