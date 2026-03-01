@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import useAuthStore from "../store/authStore";
 import api from "../services/api";
+import { startTestSession } from "../services/testService";
 import toast from "react-hot-toast";
 
 export default function Dashboard() {
@@ -37,9 +38,9 @@ export default function Dashboard() {
     } catch (err) {
       const msg = err.response?.data?.detail;
       if (msg && msg.includes("attempt this test again in")) {
-        toast.error(msg);
+        toast.error(msg, { duration: 8000 });
       } else {
-        navigate(`/exam/${testId}`);
+        toast.error("Failed to start test");
       }
     }
   };

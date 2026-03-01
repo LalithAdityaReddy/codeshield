@@ -24,7 +24,6 @@ async def register(
 
     return token_data
 
-
 @router.post("/login", response_model=TokenResponse)
 async def login(
     data: LoginRequest,

@@ -99,18 +99,6 @@ export default function Register() {
             />
           </div>
 
-          <div style={styles.field}>
-            <label style={styles.label}>Role</label>
-            <select
-              name="role"
-              value={form.role}
-              onChange={handleChange}
-              style={styles.input}
-            >
-              <option value="candidate">Candidate</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
 
           <button
             type="submit"

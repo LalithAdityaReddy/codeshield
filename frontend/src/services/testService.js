@@ -29,3 +29,8 @@ export const getQuestions = async (testId) => {
   const response = await api.get(`/api/questions/${testId}/questions`);
   return response.data;
 };
+
+export const completeTestSession = async (testId) => {
+  const response = await api.post(`/api/tests/${testId}/complete`);
+  return response.data;
+};

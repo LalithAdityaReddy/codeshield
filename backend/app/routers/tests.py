@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
+from datetime import datetime, timezone, timedelta
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin
 from app.schemas.test import TestCreate, TestResponse, TestDetailResponse
@@ -9,6 +10,7 @@ from app.services.test_service import create_test, get_all_tests, get_test_by_id
 from app.models.user import User
 from app.models.test import Test
 from app.models.session import Session
+
 router = APIRouter()
 
 
@@ -83,67 +85,15 @@ async def get_test(
         ],
         "created_at": test.created_at
     }
-@router.post("/{test_id}/start", response_model=dict)
-async def start_test_session(
-    test_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    # Check test exists
-    result = await db.execute(
-        select(Test).where(Test.id == test_id)
-    )
-    test = result.scalar_one_or_none()
 
-    if not test:
-        from fastapi import HTTPException, status
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Test not found"
-        )
 
-    # Check if session already exists
-    result = await db.execute(
-        select(Session).where(
-            Session.user_id == current_user.id,
-            Session.test_id == test_id
-        )
-    )
-    existing_session = result.scalar_one_or_none()
-
-    if existing_session:
-        return {
-            "session_id": str(existing_session.id),
-            "status": existing_session.status,
-            "time_remaining": existing_session.time_remaining or test.duration_mins * 60
-        }
-
-    # Create new session
-    new_session = Session(
-        user_id=current_user.id,
-        test_id=test_id,
-        status="in_progress",
-        time_remaining=test.duration_mins * 60
-    )
-
-    db.add(new_session)
-    await db.flush()
-    await db.refresh(new_session)
-
-    return {
-        "session_id": str(new_session.id),
-        "status": new_session.status,
-        "time_remaining": new_session.time_remaining
-    }
 @router.post("/{test_id}/start")
 async def start_session(
     test_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    from datetime import datetime, timezone, timedelta
-
-    # Check for existing session
+    # Get most recent session for this user and test
     result = await db.execute(
         select(Session).where(
             Session.test_id == test_id,
@@ -152,9 +102,9 @@ async def start_session(
     )
     existing = result.scalars().first()
 
-    if existing:
-        now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
 
+    if existing:
         # If session is in progress — return it
         if existing.status == "in_progress":
             time_elapsed = (now - existing.started_at.replace(tzinfo=timezone.utc)).total_seconds()
@@ -168,7 +118,7 @@ async def start_session(
                 "time_remaining": time_remaining
             }
 
-        # If completed — check 24hr cooldown
+        # If completed — enforce 24hr cooldown
         if existing.status == "completed":
             completed_at = existing.submitted_at or existing.started_at
             if completed_at.tzinfo is None:
@@ -192,7 +142,7 @@ async def start_session(
         test_id=test_id,
         user_id=current_user.id,
         status="in_progress",
-        duration_mins=test.duration_mins
+        time_remaining=test.duration_mins * 60
     )
     db.add(new_session)
     await db.flush()
@@ -202,3 +152,28 @@ async def start_session(
         "status": "in_progress",
         "time_remaining": test.duration_mins * 60
     }
+
+
+@router.post("/{test_id}/complete")
+async def complete_session(
+    test_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(Session).where(
+            Session.test_id == test_id,
+            Session.user_id == current_user.id,
+            Session.status == "in_progress"
+        ).order_by(Session.started_at.desc())
+    )
+    session = result.scalars().first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Active session not found")
+
+    session.status = "completed"
+    session.submitted_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return {"message": "Session completed"}

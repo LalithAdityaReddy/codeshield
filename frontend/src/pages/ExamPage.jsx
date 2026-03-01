@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Editor from "@monaco-editor/react";
 import toast from "react-hot-toast";
-import { getTestById, startTestSession, getQuestions } from "../services/testService";
+import { getTestById, startTestSession, getQuestions, completeTestSession } from "../services/testService";
 import { submitCode } from "../services/submissionService";
 import { formatTime } from "../utils/formatTime";
 import useAuthStore from "../store/authStore";
@@ -33,7 +33,7 @@ export default function ExamPage() {
   const [questions, setQuestions] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [sessionId, setSessionId] = useState(null);
-  const [timeLeft, setTimeLeft] = useState(3600);
+  const [timeLeft, setTimeLeft] = useState(null);
   const [language, setLanguage] = useState("python3");
   const [code, setCode] = useState("class Solution:\n    def solve(self):\n        # Write your solution here\n        pass\n");
   const [bottomTab, setBottomTab] = useState("testcase");
@@ -50,6 +50,7 @@ export default function ExamPage() {
   }, [testId]);
 
   useEffect(() => {
+    if (timeLeft === null) return;
     if (timeLeft <= 0) {
       toast.error("Time is up!");
       stopCameraAndNavigate("/dashboard");
@@ -61,24 +62,42 @@ export default function ExamPage() {
     return () => clearInterval(timer);
   }, [timeLeft]);
 
-  const stopCameraAndNavigate = (path) => {
+  const stopCameraAndNavigate = async (path) => {
     monitoringSocket.disconnect();
+    try {
+      await completeTestSession(testId);
+    } catch (err) {
+      console.log("Session complete error:", err);
+    }
     if (window._stopProctoring) {
       window._stopProctoring();
     }
-    navigate(path);
+    if (navigator.mediaDevices) {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then(stream => stream.getTracks().forEach(track => track.stop()))
+        .catch(() => {});
+    }
+    document.querySelectorAll("video").forEach(video => {
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
+      }
+    });
+    window.location.href = path;
   };
 
   const initExam = async () => {
     try {
-      const [testData, session, questionsData] = await Promise.all([
-        getTestById(testId),
-        startTestSession(testId),
-        getQuestions(testId),
-      ]);
+      const testData = await getTestById(testId);
+      const session = await startTestSession(testId);
+      const questionsData = await getQuestions(testId);
+
       setTest(testData);
       setSessionId(session.session_id);
-      setTimeLeft(session.time_remaining);
+
+      const remaining = session.time_remaining;
+      setTimeLeft(remaining > 0 ? remaining : testData.duration_mins * 60);
+
       setQuestions(questionsData);
       if (questionsData.length > 0) {
         setTestInput("");
@@ -88,7 +107,12 @@ export default function ExamPage() {
         monitoringSocket.setQuestion(questionsData[0].id);
       }
     } catch (err) {
-      toast.error("Failed to load exam");
+      const msg = err.response?.data?.detail;
+      if (msg && msg.includes("attempt this test again in")) {
+        toast.error(msg, { duration: 8000 });
+      } else {
+        toast.error("Failed to load exam");
+      }
       navigate("/dashboard");
     } finally {
       setLoading(false);
@@ -105,12 +129,7 @@ export default function ExamPage() {
     setIsRunning(true);
     setBottomTab("results");
     try {
-      const result = await submitCode(
-        sessionId,
-        questions[currentQuestion].id,
-        code,
-        language
-      );
+      const result = await submitCode(sessionId, questions[currentQuestion].id, code, language);
       setResults(result);
       if (result.status === "accepted") {
         toast.success("All test cases passed.");
@@ -129,12 +148,7 @@ export default function ExamPage() {
     setSubmitting(true);
     setBottomTab("results");
     try {
-      const result = await submitCode(
-        sessionId,
-        questions[currentQuestion].id,
-        code,
-        language
-      );
+      const result = await submitCode(sessionId, questions[currentQuestion].id, code, language);
       setResults(result);
       if (result.status === "accepted") {
         toast.success("Accepted! All test cases passed.");
@@ -148,10 +162,7 @@ export default function ExamPage() {
     }
   };
 
-  const handleEndTest = () => {
-    stopCameraAndNavigate("/dashboard");
-  };
-
+  const handleEndTest = () => stopCameraAndNavigate("/dashboard");
   const handleMouseDown = () => { isDragging.current = true; };
   const handleMouseMove = (e) => {
     if (!isDragging.current) return;
@@ -171,12 +182,7 @@ export default function ExamPage() {
   const question = questions[currentQuestion];
 
   return (
-    <div
-      style={styles.container}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-    >
-      {/* Top Navbar */}
+    <div style={styles.container} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
       <div style={styles.navbar}>
         <div style={styles.navLeft}>
           <div style={styles.logo}>
@@ -186,7 +192,6 @@ export default function ExamPage() {
           <div style={styles.divider} />
           <span style={styles.testTitle}>{test?.title}</span>
         </div>
-
         <div style={styles.navCenter}>
           {questions.map((q, i) => (
             <button
@@ -207,37 +212,21 @@ export default function ExamPage() {
             </button>
           ))}
         </div>
-
         <div style={styles.navRight}>
-          <div style={{
-            ...styles.timer,
-            color: timeLeft < 300 ? "#f87171" : "#e0e0e0",
-          }}>
-            {formatTime(timeLeft)}
+          <div style={{ ...styles.timer, color: timeLeft !== null && timeLeft < 300 ? "#f87171" : "#e0e0e0" }}>
+            {timeLeft !== null ? formatTime(timeLeft) : "--:--"}
           </div>
-          <button
-            onClick={handleRun}
-            disabled={isRunning || submitting}
-            style={{ ...styles.runBtn, opacity: isRunning ? 0.7 : 1 }}
-          >
+          <button onClick={handleRun} disabled={isRunning || submitting} style={{ ...styles.runBtn, opacity: isRunning ? 0.7 : 1 }}>
             {isRunning ? "Running..." : "Run"}
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={submitting || isRunning}
-            style={{ ...styles.submitBtn, opacity: submitting ? 0.7 : 1 }}
-          >
+          <button onClick={handleSubmit} disabled={submitting || isRunning} style={{ ...styles.submitBtn, opacity: submitting ? 0.7 : 1 }}>
             {submitting ? "Submitting..." : "Submit"}
           </button>
-          <button onClick={handleEndTest} style={styles.endBtn}>
-            End Test
-          </button>
+          <button onClick={handleEndTest} style={styles.endBtn}>End Test</button>
         </div>
       </div>
 
-      {/* Main Split Panel */}
       <div style={styles.main}>
-        {/* Left Panel */}
         <div style={{ width: `${leftWidth}%`, ...styles.leftPanel }}>
           <div style={styles.panelTabs}>
             <span style={styles.activeTabLabel}>Description</span>
@@ -245,16 +234,12 @@ export default function ExamPage() {
           <div style={styles.problemContent}>
             {question ? (
               <>
-                <h2 style={styles.problemTitle}>
-                  {currentQuestion + 1}. {question.title}
-                </h2>
+                <h2 style={styles.problemTitle}>{currentQuestion + 1}. {question.title}</h2>
                 <div style={styles.difficultyRow}>
                   <span style={{
                     ...styles.difficulty,
-                    color: question.difficulty === "Easy" ? "#4ade80" :
-                           question.difficulty === "Hard" ? "#f87171" : "#fbbf24",
-                    background: question.difficulty === "Easy" ? "#1a2e1a" :
-                                question.difficulty === "Hard" ? "#2e1a1a" : "#2e2a1a",
+                    color: question.difficulty === "Easy" ? "#4ade80" : question.difficulty === "Hard" ? "#f87171" : "#fbbf24",
+                    background: question.difficulty === "Easy" ? "#1a2e1a" : question.difficulty === "Hard" ? "#2e1a1a" : "#2e2a1a",
                   }}>
                     {question.difficulty}
                   </span>
@@ -296,21 +281,15 @@ export default function ExamPage() {
           </div>
         </div>
 
-        {/* Divider */}
         <div onMouseDown={handleMouseDown} style={styles.dividerBar} />
 
-        {/* Right Panel */}
         <div style={{ flex: 1, ...styles.rightPanel }}>
           <div style={styles.editorHeader}>
             <div style={styles.editorTabs}>
               <span style={styles.editorTabActive}>Code</span>
             </div>
             <div style={styles.editorControls}>
-              <select
-                value={language}
-                onChange={(e) => handleLanguageChange(e.target.value)}
-                style={styles.langSelect}
-              >
+              <select value={language} onChange={(e) => handleLanguageChange(e.target.value)} style={styles.langSelect}>
                 {LANGUAGES.map((lang) => (
                   <option key={lang} value={lang}>{lang}</option>
                 ))}
@@ -327,11 +306,8 @@ export default function ExamPage() {
                 const prev = code;
                 const newCode = val || "";
                 const diff = newCode.length - prev.length;
-                if (diff > 10) {
-                  monitoringSocket.logPaste(newCode.length, diff);
-                } else if (diff > 0) {
-                  monitoringSocket.logKeypress("char", newCode.length);
-                }
+                if (diff > 10) monitoringSocket.logPaste(newCode.length, diff);
+                else if (diff > 0) monitoringSocket.logKeypress("char", newCode.length);
                 setCode(newCode);
               }}
               theme="vs-dark"
@@ -349,7 +325,6 @@ export default function ExamPage() {
             />
           </div>
 
-          {/* Bottom Panel */}
           <div style={styles.bottomPanel}>
             <div style={styles.bottomTabs}>
               <button
@@ -373,7 +348,6 @@ export default function ExamPage() {
                 Results
               </button>
             </div>
-
             <div style={styles.bottomContent}>
               {bottomTab === "testcase" && (
                 <div>
@@ -398,16 +372,10 @@ export default function ExamPage() {
                           color: results.status === "accepted" ? "#4ade80" : "#f87171",
                           background: results.status === "accepted" ? "#1a2e1a" : "#2e1a1a",
                         }}>
-                          {results.status === "accepted" ? "Accepted" : results.status.replace("_", " ")}
+                          {results.status === "accepted" ? "Accepted" : results.status?.replace("_", " ")}
                         </span>
-                        <span style={styles.resultMeta}>
-                          {results.test_cases_passed}/{results.test_cases_total} passed
-                        </span>
-                        {results.runtime_ms && (
-                          <span style={styles.resultMeta}>
-                            Runtime: {results.runtime_ms}ms
-                          </span>
-                        )}
+                        <span style={styles.resultMeta}>{results.test_cases_passed}/{results.test_cases_total} passed</span>
+                        {results.runtime_ms && <span style={styles.resultMeta}>Runtime: {results.runtime_ms}ms</span>}
                       </div>
                       <div style={styles.testCaseList}>
                         {results.results?.filter(r => !r.is_hidden).map((r, i) => (
@@ -425,10 +393,9 @@ export default function ExamPage() {
                             </div>
                             <div style={styles.tcRow}>
                               <span style={styles.tcLabel}>Got:</span>
-                              <code style={{
-                                ...styles.tcCode,
-                                color: r.passed ? "#4ade80" : "#f87171",
-                              }}>{r.got || r.error}</code>
+                              <code style={{ ...styles.tcCode, color: r.passed ? "#4ade80" : "#f87171" }}>
+                                {r.got || r.error}
+                              </code>
                             </div>
                           </div>
                         ))}
@@ -442,7 +409,6 @@ export default function ExamPage() {
         </div>
       </div>
 
-      {/* Proctoring */}
       {sessionId && (
         <Proctoring
           sessionId={sessionId}
@@ -457,180 +423,61 @@ export default function ExamPage() {
 }
 
 const styles = {
-  container: {
-    width: "100vw", height: "100vh",
-    background: "#1a1a1a", display: "flex",
-    flexDirection: "column", overflow: "hidden",
-    userSelect: "none",
-  },
-  loadingScreen: {
-    width: "100vw", height: "100vh",
-    background: "#1a1a1a", display: "flex",
-    alignItems: "center", justifyContent: "center",
-  },
+  container: { width: "100vw", height: "100vh", background: "#1a1a1a", display: "flex", flexDirection: "column", overflow: "hidden", userSelect: "none" },
+  loadingScreen: { width: "100vw", height: "100vh", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center" },
   loadingText: { color: "#888", fontSize: "16px" },
-  navbar: {
-    height: "48px", background: "#242424",
-    borderBottom: "1px solid #3a3a3a",
-    display: "flex", alignItems: "center",
-    justifyContent: "space-between",
-    padding: "0 16px", flexShrink: 0, zIndex: 10,
-  },
+  navbar: { height: "48px", background: "#242424", borderBottom: "1px solid #3a3a3a", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", flexShrink: 0, zIndex: 10 },
   navLeft: { display: "flex", alignItems: "center", gap: "12px" },
   logo: { display: "flex", alignItems: "center", gap: "8px" },
-  logoIcon: {
-    width: "28px", height: "28px",
-    background: "linear-gradient(135deg, #f89f1b, #ff6b35)",
-    borderRadius: "6px", display: "flex", alignItems: "center",
-    justifyContent: "center", fontSize: "13px", fontWeight: "900", color: "#fff",
-  },
+  logoIcon: { width: "28px", height: "28px", background: "linear-gradient(135deg, #f89f1b, #ff6b35)", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", color: "#fff" },
   logoText: { color: "#f89f1b", fontWeight: "700", fontSize: "15px" },
   divider: { width: "1px", height: "20px", background: "#444" },
   testTitle: { color: "#b0b0b0", fontSize: "13px" },
   navCenter: { display: "flex", alignItems: "center", gap: "6px" },
-  qBtn: {
-    padding: "4px 12px", borderRadius: "6px",
-    fontSize: "13px", fontWeight: "500", cursor: "pointer",
-  },
+  qBtn: { padding: "4px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: "500", cursor: "pointer" },
   navRight: { display: "flex", alignItems: "center", gap: "10px" },
-  timer: {
-    fontFamily: "monospace", fontSize: "14px",
-    background: "#2d2d2d", padding: "4px 12px",
-    borderRadius: "6px", border: "1px solid #3a3a3a",
-  },
-  runBtn: {
-    background: "#2d3748", border: "1px solid #4a5568",
-    color: "#e2e8f0", padding: "6px 14px",
-    borderRadius: "6px", fontSize: "13px",
-    fontWeight: "600", cursor: "pointer",
-  },
-  submitBtn: {
-    background: "#1a472a", border: "1px solid #2d6a4f",
-    color: "#4ade80", padding: "6px 16px",
-    borderRadius: "6px", fontSize: "13px",
-    fontWeight: "600", cursor: "pointer",
-  },
-  endBtn: {
-    background: "#3a2d2d", border: "1px solid #5a3a3a",
-    color: "#f87171", padding: "6px 12px",
-    borderRadius: "6px", fontSize: "12px", cursor: "pointer",
-  },
+  timer: { fontFamily: "monospace", fontSize: "14px", background: "#2d2d2d", padding: "4px 12px", borderRadius: "6px", border: "1px solid #3a3a3a" },
+  runBtn: { background: "#2d3748", border: "1px solid #4a5568", color: "#e2e8f0", padding: "6px 14px", borderRadius: "6px", fontSize: "13px", fontWeight: "600", cursor: "pointer" },
+  submitBtn: { background: "#1a472a", border: "1px solid #2d6a4f", color: "#4ade80", padding: "6px 16px", borderRadius: "6px", fontSize: "13px", fontWeight: "600", cursor: "pointer" },
+  endBtn: { background: "#3a2d2d", border: "1px solid #5a3a3a", color: "#f87171", padding: "6px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" },
   main: { flex: 1, display: "flex", overflow: "hidden" },
-  leftPanel: {
-    display: "flex", flexDirection: "column",
-    borderRight: "1px solid #3a3a3a", overflow: "hidden",
-  },
-  panelTabs: {
-    height: "40px", background: "#222",
-    borderBottom: "1px solid #3a3a3a",
-    display: "flex", alignItems: "center",
-    padding: "0 16px", flexShrink: 0,
-  },
-  activeTabLabel: {
-    color: "#f89f1b", fontSize: "13px",
-    fontWeight: "600", borderBottom: "2px solid #f89f1b",
-    paddingBottom: "2px",
-  },
+  leftPanel: { display: "flex", flexDirection: "column", borderRight: "1px solid #3a3a3a", overflow: "hidden" },
+  panelTabs: { height: "40px", background: "#222", borderBottom: "1px solid #3a3a3a", display: "flex", alignItems: "center", padding: "0 16px", flexShrink: 0 },
+  activeTabLabel: { color: "#f89f1b", fontSize: "13px", fontWeight: "600", borderBottom: "2px solid #f89f1b", paddingBottom: "2px" },
   problemContent: { flex: 1, overflowY: "auto", padding: "20px" },
-  problemTitle: {
-    fontSize: "17px", fontWeight: "700",
-    color: "#e0e0e0", marginBottom: "12px", lineHeight: 1.4,
-  },
+  problemTitle: { fontSize: "17px", fontWeight: "700", color: "#e0e0e0", marginBottom: "12px", lineHeight: 1.4 },
   difficultyRow: { marginBottom: "16px" },
-  difficulty: {
-    padding: "2px 10px", borderRadius: "4px",
-    fontSize: "12px", fontWeight: "600",
-  },
-  description: {
-    color: "#c0c0c0", fontSize: "14px",
-    lineHeight: 1.7, marginBottom: "16px",
-  },
+  difficulty: { padding: "2px 10px", borderRadius: "4px", fontSize: "12px", fontWeight: "600" },
+  description: { color: "#c0c0c0", fontSize: "14px", lineHeight: 1.7, marginBottom: "16px" },
   section: { marginBottom: "16px" },
-  sectionTitle: {
-    color: "#e0e0e0", fontSize: "14px",
-    fontWeight: "600", marginBottom: "8px",
-  },
-  constraintText: {
-    color: "#888", fontSize: "13px",
-    fontFamily: "monospace", background: "#252525",
-    padding: "8px 12px", borderRadius: "6px",
-  },
-  example: {
-    background: "#252525", border: "1px solid #333",
-    borderRadius: "8px", padding: "12px", marginBottom: "10px",
-  },
-  exampleRow: {
-    display: "flex", gap: "8px",
-    marginBottom: "4px", alignItems: "flex-start",
-  },
+  sectionTitle: { color: "#e0e0e0", fontSize: "14px", fontWeight: "600", marginBottom: "8px" },
+  constraintText: { color: "#888", fontSize: "13px", fontFamily: "monospace", background: "#252525", padding: "8px 12px", borderRadius: "6px" },
+  example: { background: "#252525", border: "1px solid #333", borderRadius: "8px", padding: "12px", marginBottom: "10px" },
+  exampleRow: { display: "flex", gap: "8px", marginBottom: "4px", alignItems: "flex-start" },
   exLabel: { color: "#888", fontSize: "13px", minWidth: "90px", fontWeight: "500" },
-  exCode: {
-    color: "#79c0ff", fontSize: "13px",
-    fontFamily: "monospace", background: "#1e1e1e",
-    padding: "1px 6px", borderRadius: "3px",
-  },
+  exCode: { color: "#79c0ff", fontSize: "13px", fontFamily: "monospace", background: "#1e1e1e", padding: "1px 6px", borderRadius: "3px" },
   exText: { color: "#b0b0b0", fontSize: "13px" },
   noQuestion: { color: "#555", fontSize: "14px" },
-  dividerBar: {
-    width: "4px", cursor: "col-resize",
-    background: "#2d2d2d", flexShrink: 0,
-  },
+  dividerBar: { width: "4px", cursor: "col-resize", background: "#2d2d2d", flexShrink: 0 },
   rightPanel: { display: "flex", flexDirection: "column", overflow: "hidden" },
-  editorHeader: {
-    height: "42px", background: "#222",
-    borderBottom: "1px solid #3a3a3a",
-    display: "flex", alignItems: "center",
-    justifyContent: "space-between",
-    padding: "0 12px", flexShrink: 0,
-  },
+  editorHeader: { height: "42px", background: "#222", borderBottom: "1px solid #3a3a3a", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", flexShrink: 0 },
   editorTabs: { display: "flex", alignItems: "center" },
   editorTabActive: { color: "#e0e0e0", fontSize: "13px", fontWeight: "600" },
   editorControls: { display: "flex", alignItems: "center", gap: "8px" },
-  langSelect: {
-    background: "#2d2d2d", border: "1px solid #3a3a3a",
-    color: "#e0e0e0", padding: "4px 10px",
-    borderRadius: "5px", fontSize: "13px", cursor: "pointer",
-  },
-  bottomPanel: {
-    height: "220px", borderTop: "1px solid #3a3a3a",
-    display: "flex", flexDirection: "column", flexShrink: 0,
-  },
-  bottomTabs: {
-    display: "flex", background: "#222",
-    borderBottom: "1px solid #3a3a3a", flexShrink: 0,
-  },
-  bottomTab: {
-    background: "none", border: "none",
-    padding: "8px 16px", fontSize: "12px",
-    cursor: "pointer", fontWeight: "500",
-  },
+  langSelect: { background: "#2d2d2d", border: "1px solid #3a3a3a", color: "#e0e0e0", padding: "4px 10px", borderRadius: "5px", fontSize: "13px", cursor: "pointer" },
+  bottomPanel: { height: "220px", borderTop: "1px solid #3a3a3a", display: "flex", flexDirection: "column", flexShrink: 0 },
+  bottomTabs: { display: "flex", background: "#222", borderBottom: "1px solid #3a3a3a", flexShrink: 0 },
+  bottomTab: { background: "none", border: "none", padding: "8px 16px", fontSize: "12px", cursor: "pointer", fontWeight: "500" },
   bottomContent: { flex: 1, overflowY: "auto", padding: "12px 16px" },
   inputLabel: { color: "#888", fontSize: "12px", marginBottom: "6px" },
-  testInput: {
-    width: "100%", background: "#252525",
-    border: "1px solid #3a3a3a", borderRadius: "6px",
-    color: "#e0e0e0", padding: "8px", fontFamily: "monospace",
-    fontSize: "13px", resize: "none", height: "80px",
-    boxSizing: "border-box",
-  },
+  testInput: { width: "100%", background: "#252525", border: "1px solid #3a3a3a", borderRadius: "6px", color: "#e0e0e0", padding: "8px", fontFamily: "monospace", fontSize: "13px", resize: "none", height: "80px", boxSizing: "border-box" },
   noResults: { color: "#555", fontSize: "13px", textAlign: "center", paddingTop: "20px" },
-  resultHeader: {
-    display: "flex", alignItems: "center",
-    gap: "12px", marginBottom: "12px",
-  },
-  statusBadge: {
-    padding: "3px 12px", borderRadius: "4px",
-    fontSize: "13px", fontWeight: "700",
-  },
+  resultHeader: { display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" },
+  statusBadge: { padding: "3px 12px", borderRadius: "4px", fontSize: "13px", fontWeight: "700" },
   resultMeta: { color: "#888", fontSize: "12px" },
   testCaseList: { display: "flex", flexDirection: "column", gap: "8px" },
-  testCaseItem: {
-    background: "#252525", borderRadius: "6px", padding: "10px 12px",
-  },
-  tcRow: {
-    display: "flex", gap: "8px",
-    marginBottom: "3px", alignItems: "center",
-  },
+  testCaseItem: { background: "#252525", borderRadius: "6px", padding: "10px 12px" },
+  tcRow: { display: "flex", gap: "8px", marginBottom: "3px", alignItems: "center" },
   tcLabel: { color: "#666", fontSize: "12px", minWidth: "70px" },
   tcCode: { color: "#e0e0e0", fontSize: "12px", fontFamily: "monospace" },
 };

@@ -34,7 +34,7 @@ async def register_user(data: RegisterRequest, db: AsyncSession) -> User:
         email=data.email,
         username=data.username,
         password_hash=hash_password(data.password),
-        role=data.role
+        role="candidate"
     )
 
     db.add(new_user)
