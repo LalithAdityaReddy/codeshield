@@ -17,18 +17,22 @@ class Settings(BaseSettings):
 
     # Derived CORS origins
     @property
+    @property
     def CORS_ORIGINS(self) -> List[str]:
         if self.ENVIRONMENT == "production":
-            return [
-                self.FRONTEND_URL,
-                "https://codeshield.vercel.app",
-            ]
-        return [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",]
+            origins = [
+            "https://codeshield.vercel.app",
+        ]
+            if self.FRONTEND_URL:
+                origins.append(self.FRONTEND_URL)
+        return origins
+    return [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+    ]
 
     # Async database URL (required for SQLAlchemy async)
     @property
