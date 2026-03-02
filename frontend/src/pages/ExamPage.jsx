@@ -12,16 +12,7 @@ import { monitoringSocket } from "../sockets/monitoringSocket";
 const LANGUAGES = ["python3", "javascript", "java", "cpp"];
 
 const getStarterCode = (question, lang) => {
-  if (question?.function_signature && lang === "python3") {
-    return `class Solution:\n    ${question.function_signature}\n        # Write your solution here\n        pass\n`;
-  }
-  const defaults = {
-    python3: "class Solution:\n    def solve(self):\n        # Write your solution here\n        pass\n",
-    javascript: "// Write your solution here\n\nfunction solution() {\n    \n}\n",
-    java: "class Solution {\n    public void solution() {\n        \n    }\n}\n",
-    cpp: "#include <bits/stdc++.h>\nusing namespace std;\n\nclass Solution {\npublic:\n    void solution() {\n        \n    }\n};\n",
-  };
-  return defaults[lang] || "";
+  return "";
 };
 
 export default function ExamPage() {
