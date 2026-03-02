@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { monitoringSocket } from "../sockets/monitoringSocket";
 
 const VIOLATION_LIMIT = 3;
+const GRACE_PERIOD_MS = 10000; // 10 seconds before violations count
 
 export default function Proctoring({ sessionId, onDisqualified }) {
   const videoRef = useRef(null);
@@ -10,6 +11,7 @@ export default function Proctoring({ sessionId, onDisqualified }) {
   const detectionInterval = useRef(null);
   const audioContext = useRef(null);
   const analyser = useRef(null);
+  const gracePeriodActive = useRef(true); // true = no violations counted yet
 
   const [violations, setViolations] = useState([]);
   const [warningCount, setWarningCount] = useState(0);
@@ -19,8 +21,21 @@ export default function Proctoring({ sessionId, onDisqualified }) {
   const [micReady, setMicReady] = useState(false);
   const [faceStatus, setFaceStatus] = useState("Initializing...");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [graceActive, setGraceActive] = useState(true);
+
+  // After 10 seconds, allow violations
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      gracePeriodActive.current = false;
+      setGraceActive(false);
+    }, GRACE_PERIOD_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   const triggerWarning = useCallback((message, type) => {
+    // Skip violations during grace period
+    if (gracePeriodActive.current) return;
+
     setWarningMessage(message);
     setShowWarning(true);
     setWarningCount((prev) => {
@@ -50,13 +65,13 @@ export default function Proctoring({ sessionId, onDisqualified }) {
       });
 
       streamRef.current = stream;
-window._proctoringStream = stream;
+      window._proctoringStream = stream;
 
-if (videoRef.current) {
-  videoRef.current.srcObject = stream;
-  await videoRef.current.play();
-  setCameraReady(true);
-}
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        setCameraReady(true);
+      }
 
       // Initialize audio analysis
       audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
@@ -74,6 +89,7 @@ if (videoRef.current) {
   // Face detection using canvas pixel analysis
   const detectFace = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
+    if (gracePeriodActive.current) return; // skip during grace period
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -87,7 +103,6 @@ if (videoRef.current) {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
 
-    // Count skin-tone pixels as face detection heuristic
     let skinPixels = 0;
     let totalPixels = data.length / 4;
 
@@ -96,7 +111,6 @@ if (videoRef.current) {
       const g = data[i + 1];
       const b = data[i + 2];
 
-      // Skin tone detection heuristic
       if (
         r > 95 && g > 40 && b > 20 &&
         r > g && r > b &&
@@ -168,11 +182,9 @@ if (videoRef.current) {
     };
 
     const handleKeyDown = (e) => {
-      // Block common copy shortcuts
       if ((e.ctrlKey || e.metaKey) && e.key === "c") {
         triggerWarning("Copy shortcut detected.", "copy_attempt");
       }
-      // Block alt+tab, cmd+tab
       if ((e.altKey && e.key === "Tab") || (e.metaKey && e.key === "Tab")) {
         e.preventDefault();
         triggerWarning("Tab switching detected.", "tab_switch");
@@ -203,23 +215,24 @@ if (videoRef.current) {
     }, 3000);
 
     return () => {
-        clearInterval(detectionInterval.current);
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((track) => track.stop());
-          streamRef.current = null;
-        }
-        if (videoRef.current) {
-          videoRef.current.srcObject = null;
-        }
-        if (audioContext.current) {
-          audioContext.current.close();
-          audioContext.current = null;
-        }
-        window._proctoringStream = null;
-      };
+      clearInterval(detectionInterval.current);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      if (audioContext.current) {
+        audioContext.current.close();
+        audioContext.current = null;
+      }
+      window._proctoringStream = null;
+    };
   }, []);
-    // Expose stop function globally so ExamPage can call it
-useEffect(() => {
+
+  // Expose stop function globally
+  useEffect(() => {
     window._stopProctoring = () => {
       clearInterval(detectionInterval.current);
       if (streamRef.current) {
@@ -238,13 +251,14 @@ useEffect(() => {
       }
       window._proctoringStream = null;
     };
-  
+
     return () => {
       if (window._stopProctoring) {
         window._stopProctoring();
       }
     };
   }, []);
+
   return (
     <>
       {/* Warning Overlay */}
@@ -264,38 +278,31 @@ useEffect(() => {
 
       {/* Proctoring Panel */}
       <div style={styles.panel}>
-        {/* Camera Feed */}
         <div style={{ display: "none" }}>
-  <video
-    ref={videoRef}
-    muted
-    playsInline
-  />
-</div>
-<canvas ref={canvasRef} style={{ display: "none" }} />
+          <video ref={videoRef} muted playsInline />
+        </div>
+        <canvas ref={canvasRef} style={{ display: "none" }} />
+
+        {/* Grace period indicator */}
+        {graceActive && (
+          <div style={styles.graceBar}>
+            <span style={styles.graceText}>⏳ Initializing... (10s)</span>
+          </div>
+        )}
 
         {/* Status Row */}
         <div style={styles.statusRow}>
           <div style={styles.statusItem}>
-            <div style={{
-              ...styles.dot,
-              background: cameraReady ? "#4ade80" : "#f87171",
-            }} />
+            <div style={{ ...styles.dot, background: cameraReady ? "#4ade80" : "#f87171" }} />
             <span>Camera</span>
           </div>
           <div style={styles.statusItem}>
-            <div style={{
-              ...styles.dot,
-              background: micReady ? "#4ade80" : "#f87171",
-            }} />
+            <div style={{ ...styles.dot, background: micReady ? "#4ade80" : "#f87171" }} />
             <span>Mic</span>
           </div>
           <div style={styles.statusItem}>
-            <div style={{
-              ...styles.dot,
-              background: isFullscreen ? "#4ade80" : "#fbbf24",
-            }} />
-            <span>Fullscreen</span>
+            <div style={{ ...styles.dot, background: isFullscreen ? "#4ade80" : "#fbbf24" }} />
+            <span>Full</span>
           </div>
         </div>
 
@@ -379,32 +386,15 @@ const styles = {
     padding: "8px",
     zIndex: 1000,
   },
-  cameraContainer: {
-    position: "relative",
-    borderRadius: "6px",
-    overflow: "hidden",
-    marginBottom: "8px",
-  },
-  video: {
-    width: "100%",
-    borderRadius: "6px",
-    display: "block",
-    transform: "scaleX(-1)",
-  },
-  cameraStatus: {
-    position: "absolute",
-    bottom: "4px", left: "4px",
-    display: "flex", alignItems: "center",
-    gap: "4px",
-    background: "rgba(0,0,0,0.7)",
-    padding: "2px 6px",
+  graceBar: {
+    background: "#2d2a1a",
+    border: "1px solid #f89f1b44",
     borderRadius: "4px",
+    padding: "4px 6px",
+    marginBottom: "6px",
+    textAlign: "center",
   },
-  statusDot: {
-    width: "6px", height: "6px",
-    borderRadius: "50%",
-  },
-  statusText: { color: "#fff", fontSize: "9px" },
+  graceText: { color: "#f89f1b", fontSize: "9px" },
   statusRow: {
     display: "flex",
     justifyContent: "space-between",
