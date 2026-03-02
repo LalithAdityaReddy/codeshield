@@ -12,10 +12,11 @@ class Settings(BaseSettings):
     @property
     def CORS_ORIGINS(self) -> List[str]:
         if self.ENVIRONMENT == "production":
-            origins = ["https://codeshield.vercel.app"]
-            if self.FRONTEND_URL:
-                origins.append(self.FRONTEND_URL)
-            return origins
+            return [
+                "https://codeshield-two.vercel.app",
+                "https://codeshield.vercel.app",
+                self.FRONTEND_URL,
+            ]
         return [
             "http://localhost:5173",
             "http://localhost:5174",

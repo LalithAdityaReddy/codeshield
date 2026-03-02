@@ -73,18 +73,21 @@ async def create_submission(
 
     await db.flush()
 
-# Run detection only on accepted submissions
-    if submission.status == "accepted":
-        from app.services.analytics_service import run_plagiarism_check
+    # Run detection and rankings
+    try:
         from app.services.ranking_service import compute_rankings
-        await run_plagiarism_check(str(submission.id), db)
-    # Get test_id from session
-        session_result = await db.execute(
-        select(Session).where(Session.id == session_id)
-    )
-        sess = session_result.scalar_one_or_none()
+        sess_result = await db.execute(
+            select(Session).where(Session.id == session_id)
+        )
+        sess = sess_result.scalar_one_or_none()
         if sess:
             await compute_rankings(str(sess.test_id), db)
+
+        if submission.status == "accepted":
+            from app.services.analytics_service import run_plagiarism_check
+            await run_plagiarism_check(str(submission.id), db)
+    except Exception as e:
+        print(f"Detection/ranking error: {e}")
 
     return {
         "id": str(submission.id),
