@@ -3,6 +3,8 @@ from sqlalchemy.orm import DeclarativeBase
 from app.core.config import settings
 
 # Create async engine
+print("DATABASE URL:")
+print(repr(settings.ASYNC_DATABASE_URL))
 engine = create_async_engine(
     settings.ASYNC_DATABASE_URL,
     echo=True if settings.ENVIRONMENT == "development" else False,
