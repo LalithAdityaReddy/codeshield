@@ -1,8 +1,49 @@
+import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.question import Question, TestCase
 from app.models.submission import Submission
 from app.execution_engine.sandbox import run_code_in_sandbox
+
+
+def resolve_driver_code(question: Question, language: str, user_code: str) -> str:
+    """
+    Resolve the full executable code to run, given the question config and user code.
+
+    Priority:
+    1. If driver_code is a JSON dict: use per-language driver, inject {USER_CODE} or append.
+    2. If driver_code is plain text (legacy): append it to user code.
+    3. If no driver_code: run user code as-is (full CP-style program).
+
+    Never raises — always returns runnable code.
+    """
+    if not question or not getattr(question, "driver_code", None):
+        # Pure CP-style: user writes the full program
+        return user_code
+
+    raw_driver = question.driver_code.strip()
+    if not raw_driver:
+        return user_code
+
+    # Try JSON dict format first: {"python3": "...", "cpp": "..."}
+    try:
+        driver_map = json.loads(raw_driver)
+        if isinstance(driver_map, dict):
+            lang_driver = driver_map.get(language, "")
+            if not lang_driver:
+                # No driver for this language — run as CP-style
+                return user_code
+            if "{USER_CODE}" in lang_driver:
+                return lang_driver.replace("{USER_CODE}", user_code)
+            else:
+                return f"{user_code}\n\n{lang_driver}"
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Legacy plain-text driver (not JSON): append after user code
+    if "{USER_CODE}" in raw_driver:
+        return raw_driver.replace("{USER_CODE}", user_code)
+    return f"{user_code}\n\n{raw_driver}"
 
 
 async def run_submission(
@@ -11,8 +52,8 @@ async def run_submission(
 ) -> dict:
     """
     CP-style runner: user code is executed as a full program.
-    Test case input is piped via stdin — no driver code wrapping.
-    This matches the Codeforces / competitive programming model.
+    Test case input is piped via stdin — matches Codeforces / competitive programming model.
+    Supports optional per-language driver code for LeetCode-style function wrapping.
     """
 
     # Get test cases and question
@@ -41,26 +82,12 @@ async def run_submission(
     total = len(test_cases)
     results = []
     max_runtime = 0
-    # Track the most severe failure status
     failure_status = "wrong_answer"
 
-    for tc in test_cases:
-        # Append driver code if defined (e.g. for function-only submissions)
-        full_code = submission.code
-        if question and getattr(question, "driver_code", None):
-            import json
-            try:
-                driver_map = json.loads(question.driver_code)
-                lang_driver = driver_map.get(submission.language)
-                if lang_driver:
-                    if "{USER_CODE}" in lang_driver:
-                        full_code = lang_driver.replace("{USER_CODE}", submission.code)
-                    else:
-                        full_code = f"{submission.code}\n\n{lang_driver}"
-            except Exception:
-                pass
+    # Resolve the full code once (driver is per-question, not per-test-case)
+    full_code = resolve_driver_code(question, submission.language, submission.code)
 
-        # Run user code directly — stdin is the test case input
+    for tc in test_cases:
         execution = await run_code_in_sandbox(
             code=full_code,
             language=submission.language,
@@ -122,8 +149,8 @@ async def run_custom_input(
     custom_input: str
 ) -> dict:
     """
-    Run user code against a custom input string (for the 'Run' button in exam).
-    Returns output or error — not scored.
+    Run user code against a custom stdin input (no test cases, not scored).
+    Used for the exam 'Run' button with custom input — always runs code as-is.
     """
     execution = await run_code_in_sandbox(
         code=code,

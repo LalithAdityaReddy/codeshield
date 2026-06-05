@@ -8,45 +8,10 @@ import { formatTime } from "../utils/formatTime";
 import useAuthStore from "../store/authStore";
 import Proctoring from "../components/Proctoring";
 import { monitoringSocket } from "../sockets/monitoringSocket";
+import { getStarterCode, CP_STARTER } from "../utils/codeHelpers";
 
 const LANGUAGES = ["python3", "javascript", "java", "cpp"];
 
-// CP-style full-program starter templates
-const STARTER_CODE = {
-  python3: `import sys
-input = sys.stdin.readline
-
-# Write your solution here
-`,
-  javascript: `const lines = require('fs').readFileSync('/dev/stdin','utf8').trim().split('\\n');
-let idx = 0;
-const input = () => lines[idx++];
-
-// Write your solution here
-`,
-  java: `import java.util.*;
-import java.io.*;
-
-public class Solution {
-    public static void main(String[] args) throws IOException {
-        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-        // Write your solution here
-    }
-}
-`,
-  cpp: `#include <bits/stdc++.h>
-using namespace std;
-
-int main() {
-    ios_base::sync_with_stdio(false);
-    cin.tie(NULL);
-    
-    // Write your solution here
-    
-    return 0;
-}
-`,
-};
 
 export default function ExamPage() {
   const { testId } = useParams();
@@ -59,7 +24,7 @@ export default function ExamPage() {
   const [sessionId, setSessionId] = useState(null);
   const [timeLeft, setTimeLeft] = useState(null);
   const [language, setLanguage] = useState("python3");
-  const [code, setCode] = useState(STARTER_CODE["python3"]);
+  const [code, setCode] = useState(CP_STARTER["python3"]);
   const [bottomTab, setBottomTab] = useState("samples");
   const [runResults, setRunResults] = useState(null);   // from run-samples  
   const [submitResults, setSubmitResults] = useState(null); // from submit
@@ -112,9 +77,7 @@ export default function ExamPage() {
         const token = localStorage.getItem("token");
         monitoringSocket.connect(session.session_id, token);
         monitoringSocket.setQuestion(questionsData[0].id);
-        
-        const q0 = questionsData[0];
-        setCode(q0.function_signature || STARTER_CODE["python3"]);
+        setCode(getStarterCode(questionsData[0], "python3"));
       }
     } catch (err) {
       const msg = err.response?.data?.detail;
@@ -132,11 +95,7 @@ export default function ExamPage() {
   const handleLanguageChange = (lang) => {
     setLanguage(lang);
     const q = questions[currentQuestion];
-    if (q?.function_signature && q.function_signature[lang]) {
-       setCode(q.function_signature[lang]);
-    } else {
-       setCode(STARTER_CODE[lang] || "");
-    }
+    setCode(getStarterCode(q, lang));
     setRunResults(null);
   };
 
@@ -147,11 +106,7 @@ export default function ExamPage() {
     setBottomTab("samples");
     const q = questions[idx];
     monitoringSocket.setQuestion(q.id);
-    if (q?.function_signature && q.function_signature[language]) {
-       setCode(q.function_signature[language]);
-    } else {
-       setCode(STARTER_CODE[language] || "");
-    }
+    setCode(getStarterCode(q, language));
   };
 
   // Run against visible test cases only — does NOT submit, just checks sample cases

@@ -21,7 +21,7 @@ class KeystrokeEvent(Base):
     question_id = Column(
         UUID(as_uuid=True),
         ForeignKey("questions.id"),
-        nullable=False
+        nullable=True    # nullable: violation events may not have a question context
     )
     event_type = Column(String(20), nullable=False)
     payload = Column(JSONB, nullable=True)

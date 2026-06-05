@@ -35,13 +35,20 @@ export default function AdminPage() {
     constraints: "",
     examples: [{ input: "", output: "", explanation: "" }],
     test_cases: [{ input: "", expected_output: "", is_hidden: false }],
-    function_signature: { python3: "", javascript: "", java: "", cpp: "" },
-    driver_code: { python3: "", javascript: "", java: "", cpp: "" },
   });
 
   useEffect(() => {
     fetchTests();
   }, []);
+
+  // Auto-refresh analytics every 15s when a test is selected (so rankings update live)
+  useEffect(() => {
+    if (!selectedTestForAnalytics) return;
+    const interval = setInterval(() => {
+      fetchAnalytics(selectedTestForAnalytics);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [selectedTestForAnalytics]);
 
   const fetchTests = async () => {
     try {
@@ -103,9 +110,21 @@ export default function AdminPage() {
     try {
       // Filter out empty examples
       const filteredExamples = questionForm.examples.filter(ex => ex.input || ex.output);
-      // Build clean payload — strip UI-only fields
-      const { active_lang_tab, ...formData } = questionForm;
-      await createQuestion(selectedTestId, { ...formData, examples: filteredExamples });
+      // Filter out empty test cases
+      const filteredTestCases = questionForm.test_cases.filter(tc => tc.input.trim() || tc.expected_output.trim());
+      // Build clean CP-style payload — no driver code needed
+      const payload = {
+        title: questionForm.title,
+        description: questionForm.description,
+        difficulty: questionForm.difficulty,
+        order_index: questionForm.order_index,
+        constraints: questionForm.constraints || null,
+        examples: filteredExamples,
+        test_cases: filteredTestCases,
+        function_signature: null,
+        driver_code: null,
+      };
+      await createQuestion(selectedTestId, payload);
       toast.success("Question added successfully");
       setQuestionForm({
         title: "",
@@ -115,9 +134,6 @@ export default function AdminPage() {
         constraints: "",
         examples: [{ input: "", output: "", explanation: "" }],
         test_cases: [{ input: "", expected_output: "", is_hidden: false }],
-        function_signature: { python3: "", javascript: "", java: "", cpp: "" },
-        driver_code: { python3: "", javascript: "", java: "", cpp: "" },
-        active_lang_tab: "python3",
       });
     } catch (err) {
       console.error("Question creation error:", err.response?.data);
@@ -385,69 +401,21 @@ export default function AdminPage() {
                     />
                   </div>
 
-                  {/* Language Snippets */}
-                  <div style={styles.field}>
-                    <label style={styles.label}>Language Boilerplates (LeetCode Style)</label>
-                    <p style={{ color: "#555", fontSize: "11px", margin: "0 0 8px" }}>
-                      Provide the function signature shown to candidates and the hidden driver code that wraps their submission. Use `# {USER_CODE}` or `// {USER_CODE}` in the driver to inject their code. Leave blank to default to raw standard IO wrapper.
+
+                  {/* CP-style note */}
+                  <div style={{ background: "#1a2e1a", border: "1px solid #2d6a4f44", borderRadius: "8px", padding: "10px 14px", marginBottom: "16px" }}>
+                    <span style={{ color: "#4ade80", fontSize: "12px", fontWeight: "600" }}>✅ CP-Style (Stdin / Stdout)</span>
+                    <p style={{ color: "#666", fontSize: "11px", margin: "4px 0 0" }}>
+                      Candidates write full programs that read from <code style={{ color: "#79c0ff" }}>stdin</code> and print to <code style={{ color: "#79c0ff" }}>stdout</code>.
+                      No driver code needed — just define your test case inputs and expected outputs below.
                     </p>
-                    <div style={{ background: "#1e1e1e", padding: "12px", borderRadius: "8px", border: "1px solid #333" }}>
-                      <div style={{ display: "flex", gap: "8px", marginBottom: "12px", overflowX: "auto" }}>
-                        {["python3", "javascript", "java", "cpp"].map(lang => (
-                          <button
-                            key={lang}
-                            type="button"
-                            onClick={() => setQuestionForm(prev => ({ ...prev, active_lang_tab: lang }))}
-                            style={{
-                              padding: "6px 12px",
-                              borderRadius: "4px",
-                              fontSize: "12px",
-                              border: "none",
-                              cursor: "pointer",
-                              background: (questionForm.active_lang_tab || "python3") === lang ? "#f89f1b" : "#2a2a2a",
-                              color: (questionForm.active_lang_tab || "python3") === lang ? "#000" : "#888",
-                              fontWeight: "600"
-                            }}
-                          >
-                            {lang}
-                          </button>
-                        ))}
-                      </div>
-                      
-                      <div style={{ display: "flex", gap: "12px" }}>
-                        <div style={{ flex: 1 }}>
-                          <label style={{ ...styles.label, fontSize: "11px" }}>Function Signature (shown to user)</label>
-                          <textarea
-                            placeholder={"e.g.\nclass Solution:\n    def isAnagram(self, s: str) -> bool:"}
-                            value={questionForm.function_signature[questionForm.active_lang_tab || "python3"]}
-                            onChange={(e) => setQuestionForm(prev => ({
-                              ...prev,
-                              function_signature: { ...prev.function_signature, [prev.active_lang_tab || "python3"]: e.target.value }
-                            }))}
-                            style={{ ...styles.input, height: "120px", fontFamily: "monospace", fontSize: "12px" }}
-                          />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <label style={{ ...styles.label, fontSize: "11px" }}>Hidden Driver Code (must contain {'{USER_CODE}'})</label>
-                          <textarea
-                            placeholder={"e.g.\nimport sys\n\n# {USER_CODE}\n\nif __name__ == '__main__':\n    print(Solution().isAnagram(sys.stdin.read().strip()))"}
-                            value={questionForm.driver_code[questionForm.active_lang_tab || "python3"]}
-                            onChange={(e) => setQuestionForm(prev => ({
-                              ...prev,
-                              driver_code: { ...prev.driver_code, [prev.active_lang_tab || "python3"]: e.target.value }
-                            }))}
-                            style={{ ...styles.input, height: "120px", fontFamily: "monospace", fontSize: "12px" }}
-                          />
-                        </div>
-                      </div>
-                    </div>
                   </div>
 
                   {/* Sample Examples shown to users */}
                   <div style={styles.field}>
                     <label style={styles.label}>Sample Examples (shown to candidates)</label>
                     <p style={{ color: "#555", fontSize: "11px", margin: "0 0 8px" }}>
-                      Leave blank to use full-program CP-style templates. Provide exact snippet for user to implement (e.g. `def isAnagram(self, s: str) -&gt; bool:\n    pass`)
+                      These will be displayed on the exam page so candidates understand the input/output format.
                     </p>
                     {questionForm.examples.map((ex, index) => (
                       <div key={index} style={{ ...styles.testCaseRow, flexDirection: "column", gap: "6px", marginBottom: "12px", padding: "12px", background: "#1e1e1e", borderRadius: "8px", border: "1px solid #333" }}>
@@ -566,6 +534,11 @@ export default function AdminPage() {
                   <option key={t.id} value={t.id}>{t.title}</option>
                 ))}
               </select>
+              {selectedTestForAnalytics && (
+                <span style={{ color: "#555", fontSize: "11px", marginTop: "4px", display: "block" }}>
+                  🔄 Auto-refreshing every 15s
+                </span>
+              )}
             </div>
 
             {loadingAnalytics && (

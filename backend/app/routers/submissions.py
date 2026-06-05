@@ -57,6 +57,7 @@ async def run_sample_testcases(
     No DB write, no ranking update — used for the 'Run' button in exam.
     """
     from app.execution_engine.sandbox import run_code_in_sandbox
+    from app.execution_engine.runner import resolve_driver_code
     from app.models.question import TestCase
     from sqlalchemy import select
 
@@ -71,23 +72,19 @@ async def run_sample_testcases(
     )
     test_cases = tc_result.scalars().all()
 
-    results = []
-    passed = 0
-    total = len(test_cases)
-
     q_result = await db.execute(
         select(Question).where(Question.id == data.question_id)
     )
     question = q_result.scalar_one_or_none()
 
-    for tc in test_cases:
-        full_code = data.code
-        if question and getattr(question, "driver_code", None):
-            if "{USER_CODE}" in question.driver_code:
-                full_code = question.driver_code.replace("{USER_CODE}", data.code)
-            else:
-                full_code = f"{data.code}\n\n{question.driver_code}"
+    # Resolve once — same driver logic as the full submit runner
+    full_code = resolve_driver_code(question, data.language, data.code)
 
+    results = []
+    passed = 0
+    total = len(test_cases)
+
+    for tc in test_cases:
         execution = await run_code_in_sandbox(
             code=full_code,
             language=data.language,
@@ -124,6 +121,7 @@ async def run_sample_testcases(
         "total": total,
         "results": results,
     }
+
 
 
 @router.post("/{session_id}/submit", response_model=SubmissionResponse)

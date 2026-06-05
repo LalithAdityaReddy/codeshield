@@ -73,24 +73,25 @@ async def create_submission(
 
     await db.flush()
 
-    # Run detection and rankings
+    # 1. Run AI/plagiarism detection (best-effort — never blocks ranking)
     try:
         from app.services.analytics_service import run_detection
-        from app.services.ranking_service import compute_rankings
-
-        # 1. ALWAYS run detection (plagiarism + AI), not just on 'accepted'
         await run_detection(str(submission.id), db)
+    except Exception as e:
+        print(f"[Detection error — skipping, ranking will still run]: {e}")
 
-        # 2. Recompute rankings AFTER generating integrity scores
+    # 2. Always recompute rankings after every submission
+    try:
+        from app.services.ranking_service import compute_rankings
         sess_result = await db.execute(
             select(Session).where(Session.id == session_id)
         )
         sess = sess_result.scalar_one_or_none()
         if sess:
             await compute_rankings(str(sess.test_id), db)
-
+            await db.flush()  # Ensure ranking rows are flushed before commit
     except Exception as e:
-        print(f"Detection/ranking error: {e}")
+        print(f"[Ranking error]: {e}")
 
     return {
         "id": str(submission.id),
