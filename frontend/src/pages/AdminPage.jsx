@@ -33,9 +33,10 @@ export default function AdminPage() {
     difficulty: "Medium",
     order_index: 1,
     constraints: "",
-    function_signature: "",
-    driver_code: "",
+    examples: [{ input: "", output: "", explanation: "" }],
     test_cases: [{ input: "", expected_output: "", is_hidden: false }],
+    function_signature: { python3: "", javascript: "", java: "", cpp: "" },
+    driver_code: { python3: "", javascript: "", java: "", cpp: "" },
   });
 
   useEffect(() => {
@@ -95,8 +96,16 @@ export default function AdminPage() {
 
   const handleCreateQuestion = async (e) => {
     e.preventDefault();
+    if (!selectedTestId) {
+      toast.error("Please select a test first");
+      return;
+    }
     try {
-      await createQuestion(selectedTestId, questionForm);
+      // Filter out empty examples
+      const filteredExamples = questionForm.examples.filter(ex => ex.input || ex.output);
+      // Build clean payload — strip UI-only fields
+      const { active_lang_tab, ...formData } = questionForm;
+      await createQuestion(selectedTestId, { ...formData, examples: filteredExamples });
       toast.success("Question added successfully");
       setQuestionForm({
         title: "",
@@ -104,12 +113,19 @@ export default function AdminPage() {
         difficulty: "Medium",
         order_index: 1,
         constraints: "",
-        function_signature: "",
-        driver_code: "",
+        examples: [{ input: "", output: "", explanation: "" }],
         test_cases: [{ input: "", expected_output: "", is_hidden: false }],
+        function_signature: { python3: "", javascript: "", java: "", cpp: "" },
+        driver_code: { python3: "", javascript: "", java: "", cpp: "" },
+        active_lang_tab: "python3",
       });
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Failed to create question");
+      console.error("Question creation error:", err.response?.data);
+      const detail = err.response?.data?.detail;
+      const msg = Array.isArray(detail)
+        ? detail.map(d => `${d.loc?.join(".")}: ${d.msg}`).join(" | ")
+        : detail || err.message || "Failed to create question";
+      toast.error(msg);
     }
   };
 
@@ -120,6 +136,26 @@ export default function AdminPage() {
         ...questionForm.test_cases,
         { input: "", expected_output: "", is_hidden: false },
       ],
+    });
+  };
+
+  const addExample = () => {
+    setQuestionForm({
+      ...questionForm,
+      examples: [...questionForm.examples, { input: "", output: "", explanation: "" }],
+    });
+  };
+
+  const updateExample = (index, field, value) => {
+    const updated = [...questionForm.examples];
+    updated[index][field] = value;
+    setQuestionForm({ ...questionForm, examples: updated });
+  };
+
+  const removeExample = (index) => {
+    setQuestionForm({
+      ...questionForm,
+      examples: questionForm.examples.filter((_, i) => i !== index),
     });
   };
 
@@ -338,76 +374,163 @@ export default function AdminPage() {
                       />
                     </div>
                   </div>
+                  {/* Constraints */}
                   <div style={styles.field}>
                     <label style={styles.label}>Constraints</label>
                     <textarea
                       value={questionForm.constraints}
                       onChange={(e) => setQuestionForm({ ...questionForm, constraints: e.target.value })}
-                      placeholder="e.g. 1 <= n <= 1000"
-                      style={{ ...styles.input, height: "80px", resize: "vertical" }}
+                      placeholder={"e.g.\n1 ≤ n ≤ 1000\n1 ≤ a[i] ≤ 10^9"}
+                      style={{ ...styles.input, height: "80px", resize: "vertical", fontFamily: "monospace", fontSize: "13px" }}
                     />
-                  </div>
-                  <div style={styles.field}>
-                    <label style={styles.label}>Function Signature</label>
-                    <input
-                      type="text"
-                      value={questionForm.function_signature}
-                      onChange={(e) => setQuestionForm({ ...questionForm, function_signature: e.target.value })}
-                      placeholder="def numSteps(self, s: str) -> int:"
-                      style={styles.input}
-                    />
-                    <span style={{ color: "#555", fontSize: "11px", marginTop: "4px" }}>
-                      Shown to candidate as starter code
-                    </span>
-                  </div>
-                  <div style={styles.field}>
-                    <label style={styles.label}>Driver Code (Hidden)</label>
-                    <textarea
-                      value={questionForm.driver_code}
-                      onChange={(e) => setQuestionForm({ ...questionForm, driver_code: e.target.value })}
-                      placeholder="result = sol.numSteps(__INPUT__)\nprint(result)"
-                      style={{ ...styles.input, height: "80px", resize: "vertical", fontFamily: "monospace", fontSize: "12px" }}
-                    />
-                    <span style={{ color: "#555", fontSize: "11px", marginTop: "4px" }}>
-                      Use __INPUT__ as placeholder for test case input
-                    </span>
                   </div>
 
+                  {/* Language Snippets */}
                   <div style={styles.field}>
-                    <label style={styles.label}>Test Cases</label>
+                    <label style={styles.label}>Language Boilerplates (LeetCode Style)</label>
+                    <p style={{ color: "#555", fontSize: "11px", margin: "0 0 8px" }}>
+                      Provide the function signature shown to candidates and the hidden driver code that wraps their submission. Use `# {USER_CODE}` or `// {USER_CODE}` in the driver to inject their code. Leave blank to default to raw standard IO wrapper.
+                    </p>
+                    <div style={{ background: "#1e1e1e", padding: "12px", borderRadius: "8px", border: "1px solid #333" }}>
+                      <div style={{ display: "flex", gap: "8px", marginBottom: "12px", overflowX: "auto" }}>
+                        {["python3", "javascript", "java", "cpp"].map(lang => (
+                          <button
+                            key={lang}
+                            type="button"
+                            onClick={() => setQuestionForm(prev => ({ ...prev, active_lang_tab: lang }))}
+                            style={{
+                              padding: "6px 12px",
+                              borderRadius: "4px",
+                              fontSize: "12px",
+                              border: "none",
+                              cursor: "pointer",
+                              background: (questionForm.active_lang_tab || "python3") === lang ? "#f89f1b" : "#2a2a2a",
+                              color: (questionForm.active_lang_tab || "python3") === lang ? "#000" : "#888",
+                              fontWeight: "600"
+                            }}
+                          >
+                            {lang}
+                          </button>
+                        ))}
+                      </div>
+                      
+                      <div style={{ display: "flex", gap: "12px" }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ ...styles.label, fontSize: "11px" }}>Function Signature (shown to user)</label>
+                          <textarea
+                            placeholder={"e.g.\nclass Solution:\n    def isAnagram(self, s: str) -> bool:"}
+                            value={questionForm.function_signature[questionForm.active_lang_tab || "python3"]}
+                            onChange={(e) => setQuestionForm(prev => ({
+                              ...prev,
+                              function_signature: { ...prev.function_signature, [prev.active_lang_tab || "python3"]: e.target.value }
+                            }))}
+                            style={{ ...styles.input, height: "120px", fontFamily: "monospace", fontSize: "12px" }}
+                          />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ ...styles.label, fontSize: "11px" }}>Hidden Driver Code (must contain {'{USER_CODE}'})</label>
+                          <textarea
+                            placeholder={"e.g.\nimport sys\n\n# {USER_CODE}\n\nif __name__ == '__main__':\n    print(Solution().isAnagram(sys.stdin.read().strip()))"}
+                            value={questionForm.driver_code[questionForm.active_lang_tab || "python3"]}
+                            onChange={(e) => setQuestionForm(prev => ({
+                              ...prev,
+                              driver_code: { ...prev.driver_code, [prev.active_lang_tab || "python3"]: e.target.value }
+                            }))}
+                            style={{ ...styles.input, height: "120px", fontFamily: "monospace", fontSize: "12px" }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sample Examples shown to users */}
+                  <div style={styles.field}>
+                    <label style={styles.label}>Sample Examples (shown to candidates)</label>
+                    <p style={{ color: "#555", fontSize: "11px", margin: "0 0 8px" }}>
+                      Leave blank to use full-program CP-style templates. Provide exact snippet for user to implement (e.g. `def isAnagram(self, s: str) -&gt; bool:\n    pass`)
+                    </p>
+                    {questionForm.examples.map((ex, index) => (
+                      <div key={index} style={{ ...styles.testCaseRow, flexDirection: "column", gap: "6px", marginBottom: "12px", padding: "12px", background: "#1e1e1e", borderRadius: "8px", border: "1px solid #333" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ color: "#888", fontSize: "12px" }}>Example {index + 1}</span>
+                          {questionForm.examples.length > 1 && (
+                            <button type="button" onClick={() => removeExample(index)} style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: "12px" }}>Remove</button>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ ...styles.label, fontSize: "11px" }}>Input</label>
+                            <textarea
+                              placeholder={"5\n1 2 3 4 5"}
+                              value={ex.input}
+                              onChange={(e) => updateExample(index, "input", e.target.value)}
+                              style={{ ...styles.input, height: "60px", resize: "vertical", fontFamily: "monospace", fontSize: "12px", width: "100%", boxSizing: "border-box" }}
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ ...styles.label, fontSize: "11px" }}>Output</label>
+                            <textarea
+                              placeholder={"15"}
+                              value={ex.output}
+                              onChange={(e) => updateExample(index, "output", e.target.value)}
+                              style={{ ...styles.input, height: "60px", resize: "vertical", fontFamily: "monospace", fontSize: "12px", width: "100%", boxSizing: "border-box" }}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{ ...styles.label, fontSize: "11px" }}>Explanation (optional)</label>
+                          <input
+                            type="text"
+                            placeholder="Sum of all elements"
+                            value={ex.explanation}
+                            onChange={(e) => updateExample(index, "explanation", e.target.value)}
+                            style={{ ...styles.input, width: "100%", boxSizing: "border-box" }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button" onClick={addExample} style={styles.addTcBtn}>+ Add Example</button>
+                  </div>
+
+                  {/* Test Cases */}
+                  <div style={styles.field}>
+                    <label style={styles.label}>Test Cases (used for judging)</label>
+                    <p style={{ color: "#555", fontSize: "11px", margin: "0 0 8px" }}>
+                      Input is piped as stdin to the user's program. Use multi-line inputs (e.g., first line = n, second line = array).
+                    </p>
                     {questionForm.test_cases.map((tc, index) => (
-                      <div key={index} style={styles.testCaseRow}>
-                        <input
-                          type="text"
-                          placeholder="Input"
-                          value={tc.input}
-                          onChange={(e) => updateTestCase(index, "input", e.target.value)}
-                          style={{ ...styles.input, flex: 1 }}
-                        />
-                        <input
-                          type="text"
-                          placeholder="Expected output"
-                          value={tc.expected_output}
-                          onChange={(e) => updateTestCase(index, "expected_output", e.target.value)}
-                          style={{ ...styles.input, flex: 1 }}
-                        />
-                        <label style={styles.hiddenLabel}>
+                      <div key={index} style={{ ...styles.testCaseRow, flexDirection: "column", gap: "6px", marginBottom: "10px", padding: "10px", background: "#1e1e1e", borderRadius: "6px", border: "1px solid #333" }}>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ ...styles.label, fontSize: "11px" }}>stdin Input</label>
+                            <textarea
+                              placeholder={"5\n1 2 3 4 5"}
+                              value={tc.input}
+                              onChange={(e) => updateTestCase(index, "input", e.target.value)}
+                              style={{ ...styles.input, height: "60px", resize: "vertical", fontFamily: "monospace", fontSize: "12px", width: "100%", boxSizing: "border-box" }}
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ ...styles.label, fontSize: "11px" }}>Expected stdout Output</label>
+                            <textarea
+                              placeholder={"15"}
+                              value={tc.expected_output}
+                              onChange={(e) => updateTestCase(index, "expected_output", e.target.value)}
+                              style={{ ...styles.input, height: "60px", resize: "vertical", fontFamily: "monospace", fontSize: "12px", width: "100%", boxSizing: "border-box" }}
+                            />
+                          </div>
+                        </div>
+                        <label style={{ ...styles.hiddenLabel, color: tc.is_hidden ? "#f89f1b" : "#888" }}>
                           <input
                             type="checkbox"
                             checked={tc.is_hidden}
                             onChange={(e) => updateTestCase(index, "is_hidden", e.target.checked)}
                           />
-                          Hidden
+                          Hidden (not shown to candidate)
                         </label>
                       </div>
                     ))}
-                    <button
-                      type="button"
-                      onClick={addTestCase}
-                      style={styles.addTcBtn}
-                    >
-                      + Add Test Case
-                    </button>
+                    <button type="button" onClick={addTestCase} style={styles.addTcBtn}>+ Add Test Case</button>
                   </div>
 
                   <div style={styles.formActions}>
@@ -493,20 +616,20 @@ export default function AdminPage() {
                             <span style={{
                               ...styles.rankBadge,
                               background: row.rank === 1 ? "#854d0e" :
-                                          row.rank === 2 ? "#374151" :
-                                          row.rank === 3 ? "#431407" : "#1a1a1a",
+                                row.rank === 2 ? "#374151" :
+                                  row.rank === 3 ? "#431407" : "#1a1a1a",
                             }}>
                               #{row.rank}
                             </span>
                           </td>
                           <td style={styles.td}>
-  <button
-    onClick={() => fetchCandidateReport(row.user_id, selectedTestForAnalytics)}
-    style={styles.candidateBtn}
-  >
-    {row.username}
-  </button>
-</td>
+                            <button
+                              onClick={() => fetchCandidateReport(row.user_id, selectedTestForAnalytics)}
+                              style={styles.candidateBtn}
+                            >
+                              {row.username}
+                            </button>
+                          </td>
                           <td style={styles.td}>{row.final_score}</td>
                           <td style={styles.td}>{row.questions_solved}</td>
                           <td style={styles.td}>{row.total_runtime_ms}ms</td>
@@ -554,181 +677,180 @@ export default function AdminPage() {
                   {analyticsData.submissions.filter(
                     s => s.detection?.is_plag_flagged || s.detection?.is_ai_flagged
                   ).length === 0 && (
-                    <p style={{ color: "#555", fontSize: "13px" }}>No flagged submissions</p>
-                  )}
+                      <p style={{ color: "#555", fontSize: "13px" }}>No flagged submissions</p>
+                    )}
                 </div>
               </div>
             )}
           </div>
         )}
       </div>
-    {/* Candidate Detail Modal */}
-{showModal && (
-  <div style={styles.modalOverlay} onClick={() => setShowModal(false)}>
-    <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-      <div style={styles.modalHeader}>
-        <h2 style={styles.modalTitle}>
-          {loadingReport ? "Loading..." : candidateReport?.candidate?.username + " — Full Report"}
-        </h2>
-        <button onClick={() => setShowModal(false)} style={styles.closeBtn}>X</button>
-      </div>
+      {/* Candidate Detail Modal */}
+      {showModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowModal(false)}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>
+                {loadingReport ? "Loading..." : candidateReport?.candidate?.username + " — Full Report"}
+              </h2>
+              <button onClick={() => setShowModal(false)} style={styles.closeBtn}>X</button>
+            </div>
 
-      {loadingReport && (
-        <div style={styles.loading}>Loading report...</div>
-      )}
+            {loadingReport && (
+              <div style={styles.loading}>Loading report...</div>
+            )}
 
-      {candidateReport && !loadingReport && (
-        <div style={styles.modalBody}>
+            {candidateReport && !loadingReport && (
+              <div style={styles.modalBody}>
 
-          {/* Verdict Banner */}
-          <div style={{
-            ...styles.verdictBanner,
-            background:
-              candidateReport.verdict === "high_risk" ? "#2e1a1a" :
-              candidateReport.verdict === "medium_risk" ? "#2e2a1a" : "#1a2e1a",
-            borderColor:
-              candidateReport.verdict === "high_risk" ? "#f87171" :
-              candidateReport.verdict === "medium_risk" ? "#fbbf24" : "#4ade80",
-          }}>
-            <span style={{
-              color:
-                candidateReport.verdict === "high_risk" ? "#f87171" :
-                candidateReport.verdict === "medium_risk" ? "#fbbf24" : "#4ade80",
-              fontSize: "16px", fontWeight: "700",
-            }}>
-              {candidateReport.verdict === "high_risk" ? "HIGH RISK" :
-               candidateReport.verdict === "medium_risk" ? "MEDIUM RISK" : "LOW RISK"}
-            </span>
-            <span style={{ color: "#888", fontSize: "13px" }}>
-              Integrity Score: {candidateReport.scam_scores.overall_integrity_score}/100
-            </span>
-          </div>
-
-          {/* Scam Score Grid */}
-          <h3 style={styles.modalSectionTitle}>Scam Detection Scores</h3>
-          <div style={styles.scamGrid}>
-            {[
-              { label: "Plagiarism", key: "plagiarism_pct", color: "#f87171" },
-              { label: "AI Generated", key: "ai_generated_pct", color: "#818cf8" },
-              { label: "Tab Switching", key: "tab_switching_pct", color: "#fbbf24" },
-              { label: "Camera Violation", key: "camera_violation_pct", color: "#fb923c" },
-              { label: "Paste Events", key: "paste_score_pct", color: "#f87171" },
-              { label: "Copy Attempts", key: "copy_attempt_pct", color: "#fbbf24" },
-            ].map((item) => (
-              <div key={item.key} style={styles.scamCard}>
-                <div style={styles.scamLabel}>{item.label}</div>
-                <div style={styles.scamBarContainer}>
-                  <div style={{
-                    ...styles.scamBar,
-                    width: `${candidateReport.scam_scores[item.key]}%`,
-                    background: item.color,
-                  }} />
-                </div>
-                <div style={{ ...styles.scamPct, color: item.color }}>
-                  {candidateReport.scam_scores[item.key]}%
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Behavior Stats */}
-          <h3 style={styles.modalSectionTitle}>Behavior During Exam</h3>
-          <div style={styles.behaviorGrid}>
-            {[
-              { label: "Keystrokes", value: candidateReport.behavior.total_keystrokes },
-              { label: "Paste Events", value: candidateReport.behavior.total_pastes },
-              { label: "Tab Switches", value: candidateReport.behavior.tab_switches },
-              { label: "No Face", value: candidateReport.behavior.no_face_events },
-              { label: "Multi Face", value: candidateReport.behavior.multiple_face_events },
-              { label: "Copy Attempts", value: candidateReport.behavior.copy_attempts },
-              { label: "Avg Typing (ms)", value: candidateReport.behavior.avg_typing_speed_ms },
-              { label: "Screen Exits", value: candidateReport.behavior.fullscreen_exits },
-            ].map((item) => (
-              <div key={item.label} style={styles.behaviorCard}>
-                <div style={styles.behaviorVal}>{item.value}</div>
-                <div style={styles.behaviorLabel}>{item.label}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Explanations */}
-          {candidateReport.explanations.length > 0 && (
-            <>
-              <h3 style={styles.modalSectionTitle}>Explainable AI Analysis</h3>
-              {candidateReport.explanations.map((exp, i) => (
-                <div key={i} style={{
-                  ...styles.explanationCard,
-                  borderLeft: `3px solid ${
-                    exp.severity === "high" ? "#f87171" : "#fbbf24"
-                  }`,
+                {/* Verdict Banner */}
+                <div style={{
+                  ...styles.verdictBanner,
+                  background:
+                    candidateReport.verdict === "high_risk" ? "#2e1a1a" :
+                      candidateReport.verdict === "medium_risk" ? "#2e2a1a" : "#1a2e1a",
+                  borderColor:
+                    candidateReport.verdict === "high_risk" ? "#f87171" :
+                      candidateReport.verdict === "medium_risk" ? "#fbbf24" : "#4ade80",
                 }}>
-                  <div style={styles.expHeader}>
-                    <span style={{
-                      ...styles.expType,
-                      color: exp.severity === "high" ? "#f87171" : "#fbbf24",
-                    }}>
-                      {exp.type.replace("_", " ").toUpperCase()} — {exp.percentage}%
-                    </span>
-                    <span style={{
-                      ...styles.expSeverity,
-                      background: exp.severity === "high" ? "#2e1a1a" : "#2e2a1a",
-                      color: exp.severity === "high" ? "#f87171" : "#fbbf24",
-                    }}>
-                      {exp.severity.toUpperCase()}
-                    </span>
-                  </div>
-                  <p style={styles.expReason}>{exp.reason}</p>
-                  <p style={styles.expEvidence}>{exp.evidence}</p>
+                  <span style={{
+                    color:
+                      candidateReport.verdict === "high_risk" ? "#f87171" :
+                        candidateReport.verdict === "medium_risk" ? "#fbbf24" : "#4ade80",
+                    fontSize: "16px", fontWeight: "700",
+                  }}>
+                    {candidateReport.verdict === "high_risk" ? "HIGH RISK" :
+                      candidateReport.verdict === "medium_risk" ? "MEDIUM RISK" : "LOW RISK"}
+                  </span>
+                  <span style={{ color: "#888", fontSize: "13px" }}>
+                    Integrity Score: {candidateReport.scam_scores.overall_integrity_score}/100
+                  </span>
                 </div>
-              ))}
-            </>
-          )}
 
-          {/* Per Submission Breakdown */}
-          <h3 style={styles.modalSectionTitle}>Per Question Breakdown</h3>
-          {candidateReport.submissions.map((sub, i) => (
-            <div key={i} style={styles.subCard}>
-              <div style={styles.subHeader}>
-                <span style={styles.subTitle2}>{sub.question_title}</span>
-                <span style={{
-                  ...styles.subStatus,
-                  color: sub.status === "accepted" ? "#4ade80" : "#f87171",
-                  background: sub.status === "accepted" ? "#1a2e1a" : "#2e1a1a",
-                }}>
-                  {sub.status}
-                </span>
-              </div>
-              <div style={styles.subMeta}>
-                {sub.test_cases_passed}/{sub.test_cases_total} passed —
-                {sub.runtime_ms}ms — {sub.language}
-              </div>
-              <div style={styles.subScores}>
-                <span style={{ color: "#f87171", fontSize: "12px" }}>
-                  Plag: {sub.plag_score}%
-                </span>
-                <span style={{ color: "#818cf8", fontSize: "12px" }}>
-                  AI: {sub.ai_score}%
-                </span>
-              </div>
-              {sub.plag_breakdown && (
-                <div style={styles.breakdownGrid}>
-                  {Object.entries(sub.plag_breakdown).map(([k, v]) => (
-                    <div key={k} style={styles.breakdownItem}>
-                      <span style={styles.breakdownLabel}>
-                        {k.replace("_", " ")}
-                      </span>
-                      <span style={{ color: "#f87171", fontSize: "11px" }}>{v}%</span>
+                {/* Scam Score Grid */}
+                <h3 style={styles.modalSectionTitle}>Scam Detection Scores</h3>
+                <div style={styles.scamGrid}>
+                  {[
+                    { label: "Plagiarism", key: "plagiarism_pct", color: "#f87171" },
+                    { label: "AI Generated", key: "ai_generated_pct", color: "#818cf8" },
+                    { label: "Tab Switching", key: "tab_switching_pct", color: "#fbbf24" },
+                    { label: "Camera Violation", key: "camera_violation_pct", color: "#fb923c" },
+                    { label: "Paste Events", key: "paste_score_pct", color: "#f87171" },
+                    { label: "Copy Attempts", key: "copy_attempt_pct", color: "#fbbf24" },
+                  ].map((item) => (
+                    <div key={item.key} style={styles.scamCard}>
+                      <div style={styles.scamLabel}>{item.label}</div>
+                      <div style={styles.scamBarContainer}>
+                        <div style={{
+                          ...styles.scamBar,
+                          width: `${candidateReport.scam_scores[item.key]}%`,
+                          background: item.color,
+                        }} />
+                      </div>
+                      <div style={{ ...styles.scamPct, color: item.color }}>
+                        {candidateReport.scam_scores[item.key]}%
+                      </div>
                     </div>
                   ))}
                 </div>
-              )}
-            </div>
-          ))}
+
+                {/* Behavior Stats */}
+                <h3 style={styles.modalSectionTitle}>Behavior During Exam</h3>
+                <div style={styles.behaviorGrid}>
+                  {[
+                    { label: "Keystrokes", value: candidateReport.behavior.total_keystrokes },
+                    { label: "Paste Events", value: candidateReport.behavior.total_pastes },
+                    { label: "Tab Switches", value: candidateReport.behavior.tab_switches },
+                    { label: "No Face", value: candidateReport.behavior.no_face_events },
+                    { label: "Multi Face", value: candidateReport.behavior.multiple_face_events },
+                    { label: "Copy Attempts", value: candidateReport.behavior.copy_attempts },
+                    { label: "Avg Typing (ms)", value: candidateReport.behavior.avg_typing_speed_ms },
+                    { label: "Screen Exits", value: candidateReport.behavior.fullscreen_exits },
+                  ].map((item) => (
+                    <div key={item.label} style={styles.behaviorCard}>
+                      <div style={styles.behaviorVal}>{item.value}</div>
+                      <div style={styles.behaviorLabel}>{item.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Explanations */}
+                {candidateReport.explanations.length > 0 && (
+                  <>
+                    <h3 style={styles.modalSectionTitle}>Explainable AI Analysis</h3>
+                    {candidateReport.explanations.map((exp, i) => (
+                      <div key={i} style={{
+                        ...styles.explanationCard,
+                        borderLeft: `3px solid ${exp.severity === "high" ? "#f87171" : "#fbbf24"
+                          }`,
+                      }}>
+                        <div style={styles.expHeader}>
+                          <span style={{
+                            ...styles.expType,
+                            color: exp.severity === "high" ? "#f87171" : "#fbbf24",
+                          }}>
+                            {exp.type.replace("_", " ").toUpperCase()} — {exp.percentage}%
+                          </span>
+                          <span style={{
+                            ...styles.expSeverity,
+                            background: exp.severity === "high" ? "#2e1a1a" : "#2e2a1a",
+                            color: exp.severity === "high" ? "#f87171" : "#fbbf24",
+                          }}>
+                            {exp.severity.toUpperCase()}
+                          </span>
+                        </div>
+                        <p style={styles.expReason}>{exp.reason}</p>
+                        <p style={styles.expEvidence}>{exp.evidence}</p>
+                      </div>
+                    ))}
+                  </>
+                )}
+
+                {/* Per Submission Breakdown */}
+                <h3 style={styles.modalSectionTitle}>Per Question Breakdown</h3>
+                {candidateReport.submissions.map((sub, i) => (
+                  <div key={i} style={styles.subCard}>
+                    <div style={styles.subHeader}>
+                      <span style={styles.subTitle2}>{sub.question_title}</span>
+                      <span style={{
+                        ...styles.subStatus,
+                        color: sub.status === "accepted" ? "#4ade80" : "#f87171",
+                        background: sub.status === "accepted" ? "#1a2e1a" : "#2e1a1a",
+                      }}>
+                        {sub.status}
+                      </span>
+                    </div>
+                    <div style={styles.subMeta}>
+                      {sub.test_cases_passed}/{sub.test_cases_total} passed —
+                      {sub.runtime_ms}ms — {sub.language}
+                    </div>
+                    <div style={styles.subScores}>
+                      <span style={{ color: "#f87171", fontSize: "12px" }}>
+                        Plag: {sub.plag_score}%
+                      </span>
+                      <span style={{ color: "#818cf8", fontSize: "12px" }}>
+                        AI: {sub.ai_score}%
+                      </span>
+                    </div>
+                    {sub.plag_breakdown && (
+                      <div style={styles.breakdownGrid}>
+                        {Object.entries(sub.plag_breakdown).map(([k, v]) => (
+                          <div key={k} style={styles.breakdownItem}>
+                            <span style={styles.breakdownLabel}>
+                              {k.replace("_", " ")}
+                            </span>
+                            <span style={{ color: "#f87171", fontSize: "11px" }}>{v}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
-    </div>
-  </div>
-)}
     </div>
   );
 }

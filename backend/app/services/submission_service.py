@@ -75,7 +75,13 @@ async def create_submission(
 
     # Run detection and rankings
     try:
+        from app.services.analytics_service import run_detection
         from app.services.ranking_service import compute_rankings
+
+        # 1. ALWAYS run detection (plagiarism + AI), not just on 'accepted'
+        await run_detection(str(submission.id), db)
+
+        # 2. Recompute rankings AFTER generating integrity scores
         sess_result = await db.execute(
             select(Session).where(Session.id == session_id)
         )
@@ -83,9 +89,6 @@ async def create_submission(
         if sess:
             await compute_rankings(str(sess.test_id), db)
 
-        if submission.status == "accepted":
-            from app.services.analytics_service import run_plagiarism_check
-            await run_plagiarism_check(str(submission.id), db)
     except Exception as e:
         print(f"Detection/ranking error: {e}")
 

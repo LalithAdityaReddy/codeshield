@@ -348,8 +348,8 @@ async def get_detailed_candidate_report(
         "session": {
             "session_id": str(session.id),
             "started_at": str(session.started_at),
-"ended_at": str(session.submitted_at) if session.submitted_at else None,            
-"status": session.status,
+            "ended_at": str(session.submitted_at) if session.submitted_at else None,
+            "status": session.status,
         },
         "submissions": [
             {

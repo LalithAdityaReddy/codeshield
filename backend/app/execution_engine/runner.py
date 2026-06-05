@@ -3,92 +3,30 @@ from sqlalchemy import select
 from app.models.question import Question, TestCase
 from app.models.submission import Submission
 from app.execution_engine.sandbox import run_code_in_sandbox
-import json
-
-
-def wrap_python_code(user_code: str, driver_code: str, input_data: str) -> str:
-    return f"""
-import json
-import sys
-
-{user_code}
-
-# Driver
-{driver_code}
-"""
-
-
-def wrap_javascript_code(user_code: str, driver_code: str, input_data: str) -> str:
-    return f"""
-{user_code}
-
-// Driver
-{driver_code}
-"""
-
-
-def wrap_java_code(user_code: str, driver_code: str) -> str:
-    return f"""
-import java.util.*;
-import java.io.*;
-
-{user_code}
-
-class Main {{
-    public static void main(String[] args) throws Exception {{
-        {driver_code}
-    }}
-}}
-"""
-
-
-def wrap_cpp_code(user_code: str, driver_code: str) -> str:
-    return f"""
-#include <bits/stdc++.h>
-using namespace std;
-
-{user_code}
-
-int main() {{
-    {driver_code}
-    return 0;
-}}
-"""
-
-
-def build_python_driver(test_input: str) -> str:
-    return f"""
-try:
-    sol = Solution()
-    inputs = {test_input}
-    if isinstance(inputs, list):
-        result = sol.solve(*inputs)
-    else:
-        result = sol.solve(inputs)
-    print(result)
-except Exception as e:
-    print(f"Error: {{e}}", file=sys.stderr)
-    sys.exit(1)
-"""
 
 
 async def run_submission(
     submission: Submission,
     db: AsyncSession
 ) -> dict:
-    # Get question
-    result = await db.execute(
-        select(Question).where(Question.id == submission.question_id)
-    )
-    question = result.scalar_one_or_none()
+    """
+    CP-style runner: user code is executed as a full program.
+    Test case input is piped via stdin — no driver code wrapping.
+    This matches the Codeforces / competitive programming model.
+    """
 
-    # Get test cases
+    # Get test cases and question
     tc_result = await db.execute(
         select(TestCase)
         .where(TestCase.question_id == submission.question_id)
         .order_by(TestCase.is_hidden)
     )
     test_cases = tc_result.scalars().all()
+
+    q_result = await db.execute(
+        select(Question).where(Question.id == submission.question_id)
+    )
+    question = q_result.scalar_one_or_none()
 
     if not test_cases:
         return {
@@ -103,49 +41,48 @@ async def run_submission(
     total = len(test_cases)
     results = []
     max_runtime = 0
+    # Track the most severe failure status
+    failure_status = "wrong_answer"
 
     for tc in test_cases:
-        # Build the code to execute
-        if question and question.driver_code:
-            # Use custom driver code from admin
-            if submission.language == "python3":
-                final_code = f"""
-import json
-import sys
+        # Append driver code if defined (e.g. for function-only submissions)
+        full_code = submission.code
+        if question and getattr(question, "driver_code", None):
+            import json
+            try:
+                driver_map = json.loads(question.driver_code)
+                lang_driver = driver_map.get(submission.language)
+                if lang_driver:
+                    if "{USER_CODE}" in lang_driver:
+                        full_code = lang_driver.replace("{USER_CODE}", submission.code)
+                    else:
+                        full_code = f"{submission.code}\n\n{lang_driver}"
+            except Exception:
+                pass
 
-{submission.code}
-
-try:
-    sol = Solution()
-    {question.driver_code.replace("__INPUT__", repr(tc.input))}
-except Exception as e:
-    print(f"Error: {{e}}", file=sys.stderr)
-    sys.exit(1)
-"""
-            else:
-                final_code = submission.code
-        else:
-            # Default: treat code as full program
-            final_code = submission.code
-
+        # Run user code directly — stdin is the test case input
         execution = await run_code_in_sandbox(
-            code=final_code,
+            code=full_code,
             language=submission.language,
             input_data=tc.input
         )
 
         if not execution["success"]:
-            if "Time Limit" in execution["error"]:
-                status = "time_limit_exceeded"
+            err = execution["error"]
+            if "Time Limit" in err:
+                tc_status = "time_limit_exceeded"
+                failure_status = "time_limit_exceeded"
             else:
-                status = "runtime_error"
+                tc_status = "runtime_error"
+                if failure_status != "time_limit_exceeded":
+                    failure_status = "runtime_error"
 
             results.append({
-                "input": tc.input,
-                "expected": tc.expected_output,
+                "input": tc.input if not tc.is_hidden else "hidden",
+                "expected": tc.expected_output if not tc.is_hidden else "hidden",
                 "got": "",
                 "passed": False,
-                "error": execution["error"],
+                "error": err if not tc.is_hidden else "Error (hidden test)",
                 "is_hidden": tc.is_hidden
             })
             continue
@@ -168,10 +105,7 @@ except Exception as e:
             "is_hidden": tc.is_hidden
         })
 
-    if passed == total:
-        final_status = "accepted"
-    else:
-        final_status = "wrong_answer"
+    final_status = "accepted" if passed == total else failure_status
 
     return {
         "status": final_status,
@@ -180,3 +114,20 @@ except Exception as e:
         "runtime_ms": max_runtime,
         "results": results
     }
+
+
+async def run_custom_input(
+    code: str,
+    language: str,
+    custom_input: str
+) -> dict:
+    """
+    Run user code against a custom input string (for the 'Run' button in exam).
+    Returns output or error — not scored.
+    """
+    execution = await run_code_in_sandbox(
+        code=code,
+        language=language,
+        input_data=custom_input
+    )
+    return execution

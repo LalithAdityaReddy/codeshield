@@ -36,19 +36,28 @@ async def run_code_in_sandbox(
         try:
             start_time = time.time()
 
-            # Compile if needed
+            # Compile if needed — properly wrap communicate() not creation
             if config["compile_cmd"]:
-                compile_result = await asyncio.wait_for(
-                    asyncio.create_subprocess_shell(
-                        config["compile_cmd"],
-                        cwd=tmpdir,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    ),
-                    timeout=10
+                compile_proc = await asyncio.create_subprocess_shell(
+                    config["compile_cmd"],
+                    cwd=tmpdir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
                 )
-                compile_proc = compile_result
-                stdout, stderr = await compile_proc.communicate()
+
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        compile_proc.communicate(),
+                        timeout=10
+                    )
+                except asyncio.TimeoutError:
+                    compile_proc.kill()
+                    return {
+                        "success": False,
+                        "output": "",
+                        "error": "Compilation timed out",
+                        "runtime_ms": 0
+                    }
 
                 if compile_proc.returncode != 0:
                     return {

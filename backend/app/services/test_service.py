@@ -72,6 +72,8 @@ async def create_question(
             detail="Test not found"
         )
 
+    import json
+    
     # Create question
     new_question = Question(
         test_id=test_id,
@@ -80,7 +82,9 @@ async def create_question(
         difficulty=data.difficulty,
         order_index=data.order_index,
         constraints=data.constraints,
-        examples=data.examples
+        examples=data.examples,
+        function_signature=json.dumps(data.function_signature) if data.function_signature else None,
+        driver_code=json.dumps(data.driver_code) if data.driver_code else None
     )
 
     db.add(new_question)

@@ -1,5 +1,6 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, field_validator
+from typing import Optional, List, Dict, Any
+import json
 from datetime import datetime
 
 
@@ -16,8 +17,8 @@ class QuestionCreate(BaseModel):
     order_index: int = 1
     constraints: Optional[str] = None
     examples: Optional[list] = None
-    function_signature: Optional[str] = None
-    driver_code: Optional[str] = None
+    function_signature: Optional[Dict[str, str]] = None
+    driver_code: Optional[Dict[str, str]] = None
     test_cases: List[TestCaseSchema] = []
 
 
@@ -30,7 +31,18 @@ class QuestionResponse(BaseModel):
     order_index: int
     constraints: Optional[str] = None
     examples: Optional[list] = None
-    function_signature: Optional[str] = None
+    function_signature: Optional[Dict[str, str]] = None
+    driver_code: Optional[Dict[str, str]] = None
+
+    @field_validator("function_signature", "driver_code", mode="before")
+    @classmethod
+    def parse_json_string(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return None
+        return v
 
     class Config:
         from_attributes = True

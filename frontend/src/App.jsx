@@ -18,8 +18,9 @@ function ProtectedRoute({ children }) {
 
 // Admin route wrapper
 function AdminRoute({ children }) {
+  const token = localStorage.getItem("token");
   const user = JSON.parse(localStorage.getItem("user") || "null");
-  if (!user || user.role !== "admin") return <Navigate to="/dashboard" replace />;
+  if (!token || !user || user.role !== "admin") return <Navigate to="/login" replace />;
   return children;
 }
 

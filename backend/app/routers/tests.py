@@ -79,7 +79,8 @@ async def get_test(
                 "difficulty": q.difficulty,
                 "order_index": q.order_index,
                 "constraints": q.constraints,
-                "examples": q.examples
+                "examples": q.examples,
+                "function_signature": q.function_signature
             }
             for q in test.questions
         ],
@@ -174,6 +175,6 @@ async def complete_session(
 
     session.status = "completed"
     session.submitted_at = datetime.now(timezone.utc)
-    await db.commit()
+    await db.flush()
 
     return {"message": "Session completed"}

@@ -26,7 +26,9 @@ async def add_question_to_test(
         "difficulty": question.difficulty,
         "order_index": question.order_index,
         "constraints": question.constraints,
-        "examples": question.examples
+        "examples": question.examples,
+        "function_signature": question.function_signature,
+        "driver_code": question.driver_code
     }
 
 
@@ -46,7 +48,9 @@ async def get_test_questions(
             "difficulty": q.difficulty,
             "order_index": q.order_index,
             "constraints": q.constraints,
-            "examples": q.examples
+            "examples": q.examples,
+            "function_signature": q.function_signature,
+            "driver_code": q.driver_code
         }
         for q in questions
     ]

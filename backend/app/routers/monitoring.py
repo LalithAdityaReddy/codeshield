@@ -2,6 +2,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import decode_access_token
+from app.core.dependencies import get_current_admin
 from app.monitoring.websocket_manager import manager
 from app.monitoring.event_processor import (
     process_keystroke_event,
@@ -10,6 +11,7 @@ from app.monitoring.event_processor import (
     get_typing_stats
 )
 from app.models.session import Session
+from app.models.user import User
 from sqlalchemy import select
 import json
 
@@ -55,47 +57,47 @@ async def websocket_endpoint(
             question_id = event.get("question_id")
             payload_data = event.get("payload", {})
 
-        if event_type and question_id:
-            await process_keystroke_event(
-        session_id=session_id,
-        question_id=question_id,
-        event_type=event_type,
-        payload=payload_data,
-        db=db
-    )
-            await db.commit()
+            if event_type and question_id:
+                await process_keystroke_event(
+                    session_id=session_id,
+                    question_id=question_id,
+                    event_type=event_type,
+                    payload=payload_data,
+                    db=db
+                )
+                await db.commit()
 
-    # Check for disqualification
-            violation_types = [
-        "no_face", "multiple_faces",
-        "tab_switch", "fullscreen_exit"
-    ]
-            if event_type in violation_types:
-        # Count violations
-                from sqlalchemy import select, func
-                from app.models.keystroke import KeystrokeEvent
-                result = await db.execute(
-            select(func.count(KeystrokeEvent.id))
-            .where(
-                KeystrokeEvent.session_id == session_id,
-                KeystrokeEvent.event_type.in_(violation_types)
-            )
-        )
-                violation_count = result.scalar() or 0
+                # Check for disqualification violations
+                violation_types = [
+                    "no_face", "multiple_faces",
+                    "tab_switch", "fullscreen_exit"
+                ]
+                if event_type in violation_types:
+                    # Count violations
+                    from sqlalchemy import select, func
+                    from app.models.keystroke import KeystrokeEvent
+                    result = await db.execute(
+                        select(func.count(KeystrokeEvent.id))
+                        .where(
+                            KeystrokeEvent.session_id == session_id,
+                            KeystrokeEvent.event_type.in_(violation_types)
+                        )
+                    )
+                    violation_count = result.scalar() or 0
 
-        # Send warning back to client
+                    # Send warning back to client
+                    await manager.send_message(session_id, {
+                        "status": "warning",
+                        "type": event_type,
+                        "violation_count": violation_count,
+                        "message": f"Violation detected: {event_type}"
+                    })
+
+                # Send acknowledgment back
                 await manager.send_message(session_id, {
-            "status": "warning",
-            "type": event_type,
-            "violation_count": violation_count,
-            "message": f"Violation detected: {event_type}"
-        })
-
-            # Send acknowledgment back
-            await manager.send_message(session_id, {
-                "status": "received",
-                "type": event_type
-            })
+                    "status": "received",
+                    "type": event_type
+                })
 
     except WebSocketDisconnect:
         manager.disconnect(session_id)
@@ -107,6 +109,7 @@ async def websocket_endpoint(
 @router.get("/events/{session_id}")
 async def get_events(
     session_id: str,
+    current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
     events = await get_session_events(session_id, db)
@@ -124,6 +127,7 @@ async def get_events(
 @router.get("/violations/{session_id}")
 async def get_violations(
     session_id: str,
+    current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
     violations = await get_violation_events(session_id, db)
@@ -141,6 +145,7 @@ async def get_violations(
 @router.get("/stats/{session_id}")
 async def get_stats(
     session_id: str,
+    current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
     return await get_typing_stats(session_id, db)
