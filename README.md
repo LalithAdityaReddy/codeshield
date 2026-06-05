@@ -174,9 +174,9 @@ The platform helps recruiters, universities, and coding assessment providers ide
 
 https://codeshield-two.vercel.app/login
 
-## Demo Video
+## Trial Test Demo Code
 
-https://drive.google.com/file/d/1r5qDnPLoKpnLJEL67wSb0pju0myGIkX7/view?usp=sharing
+A sample trial test program showing standard rules and competitive programming I/O conventions can be found in [demo.txt](demo.txt). This includes reading inputs from standard input (`sys.stdin`) and printing results to standard output.
 
 ## Screenshots
 
