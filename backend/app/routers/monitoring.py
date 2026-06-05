@@ -74,7 +74,7 @@ async def websocket_endpoint(
                 "no_face", "multiple_faces", "tab_switch",
                 "fullscreen_exit", "copy_attempt", "right_click",
                 "focus_out", "focus_in", "noise_detected",
-                "paste", "keypress"
+                "paste", "keypress", "comment_deletion"
             }
             if event_type and (question_id or event_type in VIOLATION_TYPES):
                 # Use None for question_id on violation events with sentinel or missing id

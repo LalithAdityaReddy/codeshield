@@ -739,6 +739,7 @@ export default function AdminPage() {
                     { label: "Copy Attempts", value: candidateReport.behavior.copy_attempts },
                     { label: "Avg Typing (ms)", value: candidateReport.behavior.avg_typing_speed_ms },
                     { label: "Screen Exits", value: candidateReport.behavior.fullscreen_exits },
+                    { label: "Comment Deletions", value: candidateReport.behavior.comment_deletions || 0 },
                   ].map((item) => (
                     <div key={item.label} style={styles.behaviorCard}>
                       <div style={styles.behaviorVal}>{item.value}</div>
@@ -779,6 +780,18 @@ export default function AdminPage() {
                   </>
                 )}
 
+                {/* Explain why comments are dangerous */}
+                <div style={styles.commentExplanationCard}>
+                  <h4 style={{ margin: "0 0 6px", color: "#f89f1b", fontSize: "13px", fontWeight: "700" }}>
+                    ⚠️ Why Comment Analysis Matters:
+                  </h4>
+                  <p style={{ margin: 0, fontSize: "12px", color: "#b0b0b0", lineHeight: 1.5 }}>
+                    AI coding models (like ChatGPT or Copilot) typically output code containing clean, structured explanation comments (e.g., <em># Initialize</em> or <em># Return results</em>). 
+                    Candidates often strip or delete these comments during editing to hide structural templates and evade plagiarism checks. 
+                    Our system monitors comment density dynamically throughout the exam. Rapid comment deletion is a high-risk indicator of copy-pasted external solutions.
+                  </p>
+                </div>
+
                 {/* Per Submission Breakdown */}
                 <h3 style={styles.modalSectionTitle}>Per Question Breakdown</h3>
                 {candidateReport.submissions.map((sub, i) => (
@@ -813,6 +826,18 @@ export default function AdminPage() {
                               {k.replace("_", " ")}
                             </span>
                             <span style={{ color: "#f87171", fontSize: "11px" }}>{v}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {sub.ai_breakdown && (
+                      <div style={{ ...styles.breakdownGrid, marginTop: "8px" }}>
+                        {Object.entries(sub.ai_breakdown).map(([k, v]) => (
+                          <div key={k} style={styles.breakdownItem}>
+                            <span style={{ ...styles.breakdownLabel, color: "#818cf8" }}>
+                              {k.replace("_", " ")}
+                            </span>
+                            <span style={{ color: "#818cf8", fontSize: "11px" }}>{v}%</span>
                           </div>
                         ))}
                       </div>
@@ -1079,4 +1104,11 @@ const styles = {
     alignItems: "center", minWidth: "140px",
   },
   breakdownLabel: { color: "#666", fontSize: "11px" },
+  commentExplanationCard: {
+    background: "#2e2516",
+    border: "1px solid #f89f1b44",
+    borderRadius: "8px",
+    padding: "12px 16px",
+    margin: "16px 0",
+  },
 };

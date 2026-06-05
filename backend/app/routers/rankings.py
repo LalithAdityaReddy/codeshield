@@ -240,6 +240,7 @@ async def get_detailed_candidate_report(
     multiple_faces = event_counts.get("multiple_faces", 0)
     fullscreen_exits = event_counts.get("fullscreen_exit", 0)
     copy_attempts = event_counts.get("copy_attempt", 0)
+    comment_deletions = event_counts.get("comment_deletion", 0)
 
     # Compute typing speed stats
     speeds = [
@@ -272,7 +273,8 @@ async def get_detailed_candidate_report(
     integrity_score = max(0, 100 - (
         max_plag * 40 +
         max_ai * 30 +
-        min(total_violations * 5, 30)
+        min(total_violations * 5, 30) +
+        min(comment_deletions * 15, 25)
     ))
 
     # Build explanation
@@ -340,6 +342,15 @@ async def get_detailed_candidate_report(
             "evidence": "Keyboard event monitoring detected Ctrl+C / Cmd+C."
         })
 
+    if comment_deletions > 0:
+        explanations.append({
+            "type": "comment_deletion",
+            "severity": "high",
+            "percentage": min(comment_deletions * 50, 100),
+            "reason": f"Detected stripping or deletion of code comments {comment_deletions} times during exam editing.",
+            "evidence": "Real-time editor analysis detected candidate removing comments (common evasion tactic used to hide AI-generated template structures)."
+        })
+
     return {
         "candidate": {
             "user_id": user_id,
@@ -392,6 +403,7 @@ async def get_detailed_candidate_report(
             "fullscreen_exits": fullscreen_exits,
             "copy_attempts": copy_attempts,
             "avg_typing_speed_ms": avg_speed,
+            "comment_deletions": comment_deletions,
         },
         "scam_scores": {
             "plagiarism_pct": round(max_plag * 100),

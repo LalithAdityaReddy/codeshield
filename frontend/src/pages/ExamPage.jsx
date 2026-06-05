@@ -8,7 +8,7 @@ import { formatTime } from "../utils/formatTime";
 import useAuthStore from "../store/authStore";
 import Proctoring from "../components/Proctoring";
 import { monitoringSocket } from "../sockets/monitoringSocket";
-import { getStarterCode, CP_STARTER, getMonacoLanguage } from "../utils/codeHelpers";
+import { getStarterCode, CP_STARTER, getMonacoLanguage, countCommentLines } from "../utils/codeHelpers";
 
 const LANGUAGES = ["python3", "javascript", "java", "cpp", "c"];
 
@@ -33,6 +33,7 @@ export default function ExamPage() {
   const [loading, setLoading] = useState(true);
   const [leftWidth, setLeftWidth] = useState(42);
   const isDragging = useRef(false);
+  const maxCommentsMap = useRef({});
 
   useEffect(() => {
     initExam();
@@ -327,6 +328,28 @@ export default function ExamPage() {
                 } else if (diff > 1 && diff <= 10) {
                   // small diffs (e.g. autocomplete snippets or fast typing)
                   monitoringSocket.logKeypress("snippet", newCode.length);
+                }
+                
+                // Track comment density and potential deletion
+                if (question && question.id) {
+                  const currentComments = countCommentLines(newCode);
+                  const qId = question.id;
+                  if (!maxCommentsMap.current[qId]) {
+                    maxCommentsMap.current[qId] = 0;
+                  }
+                  if (currentComments > maxCommentsMap.current[qId]) {
+                    maxCommentsMap.current[qId] = currentComments;
+                  } else if (maxCommentsMap.current[qId] - currentComments >= 3) {
+                    const now = Date.now();
+                    if (!window._lastCommentDeletionLog || now - window._lastCommentDeletionLog > 8000) {
+                      window._lastCommentDeletionLog = now;
+                      monitoringSocket.logViolation("comment_deletion", {
+                        question_id: qId,
+                        max_comments: maxCommentsMap.current[qId],
+                        current_comments: currentComments
+                      });
+                    }
+                  }
                 }
                 
                 setCode(newCode);

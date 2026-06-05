@@ -103,3 +103,20 @@ export function getStarterCode(question, lang) {
   // Plain text (legacy): return as-is regardless of language
   return raw;
 }
+
+/**
+ * Counts the number of comment lines in a code snippet (handles python and c/c++ styles)
+ */
+export function countCommentLines(code) {
+  if (!code) return 0;
+  const lines = code.split("\n");
+  let commentLines = 0;
+  for (let line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("#") || trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) {
+      commentLines++;
+    }
+  }
+  return commentLines;
+}

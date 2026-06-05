@@ -59,6 +59,7 @@ class MonitoringSocket {
       "copy_attempt", "right_click",
       "no_face", "multiple_faces",
       "fullscreen_exit", "noise_detected",
+      "comment_deletion"
     ];
     const questionId = this.questionId || (VIOLATION_TYPES.includes(type) ? "__session__" : null);
     if (!questionId) return; // keypress/paste require a question context
