@@ -165,7 +165,7 @@ export default function Proctoring({ sessionId, onDisqualified }) {
     const handleVisibilityChange = () => {
       if (document.hidden) {
         triggerWarning("Tab switch detected. Stay on the exam page.", "tab_switch");
-        monitoringSocket.logTabSwitch();
+        // triggerWarning already calls logViolation("tab_switch"), don't double-send
       }
     };
 
@@ -184,10 +184,19 @@ export default function Proctoring({ sessionId, onDisqualified }) {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "c") {
         triggerWarning("Copy shortcut detected.", "copy_attempt");
+        // triggerWarning already calls logViolation("copy_attempt"), don't double-send
       }
       if ((e.altKey && e.key === "Tab") || (e.metaKey && e.key === "Tab")) {
         e.preventDefault();
         triggerWarning("Tab switching detected.", "tab_switch");
+        // triggerWarning already calls logViolation("tab_switch")
+      }
+    };
+
+    const handlePaste = (e) => {
+      const pastedText = e.clipboardData?.getData("text") || "";
+      if (pastedText) {
+        monitoringSocket.logPaste(0, pastedText.length);
       }
     };
 
@@ -195,12 +204,14 @@ export default function Proctoring({ sessionId, onDisqualified }) {
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("contextmenu", handleContextMenu);
     document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("paste", handlePaste);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("contextmenu", handleContextMenu);
       document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("paste", handlePaste);
     };
   }, [triggerWarning]);
 

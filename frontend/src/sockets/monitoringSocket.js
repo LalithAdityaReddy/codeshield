@@ -51,17 +51,27 @@ class MonitoringSocket {
   }
 
   sendEvent(type, payload = {}) {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN && this.questionId) {
-      const event = {
-        type,
-        question_id: this.questionId,
-        payload: {
-          ...payload,
-          timestamp: Date.now(),
-        },
-      };
-      this.socket.send(JSON.stringify(event));
-    }
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+
+    // Violation/proctoring events don't require a question context — use fallback
+    const VIOLATION_TYPES = [
+      "tab_switch", "focus_out", "focus_in",
+      "copy_attempt", "right_click",
+      "no_face", "multiple_faces",
+      "fullscreen_exit", "noise_detected",
+    ];
+    const questionId = this.questionId || (VIOLATION_TYPES.includes(type) ? "__session__" : null);
+    if (!questionId) return; // keypress/paste require a question context
+
+    const event = {
+      type,
+      question_id: questionId,
+      payload: {
+        ...payload,
+        timestamp: Date.now(),
+      },
+    };
+    this.socket.send(JSON.stringify(event));
   }
 
   logKeypress(key, codeLength) {
@@ -85,6 +95,12 @@ class MonitoringSocket {
   }
 
   logPaste(codeLength, pastedLength) {
+    const now = Date.now();
+    if (this._lastPasteTime && now - this._lastPasteTime < 500) {
+      return;
+    }
+    this._lastPasteTime = now;
+
     this.sendEvent("paste", {
       code_length: codeLength,
       pasted_length: pastedLength,
@@ -101,7 +117,15 @@ class MonitoringSocket {
   }
 
   logTabSwitch() {
-    this.sendEvent("tab_switch", { url: window.location.href });
+    this.sendEvent("tab_switch", { url: window.location.href, question_id: this.questionId });
+  }
+
+  logCopyAttempt() {
+    this.sendEvent("copy_attempt", {});
+  }
+
+  logFullscreenExit() {
+    this.sendEvent("fullscreen_exit", {});
   }
 
   logViolation(type, details = {}) {

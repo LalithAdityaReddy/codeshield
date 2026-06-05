@@ -143,6 +143,86 @@ async def run_detection(
         detection = DetectionResult(submission_id=submission_id, **fields)
         db.add(detection)
 
+    # If this submission is flagged for plagiarism, cross-update the matched submission
+    if fields["is_plag_flagged"] and fields["plag_matched_submission_id"]:
+        matched_sub_id = fields["plag_matched_submission_id"]
+        
+        # Get the matched submission's detection result
+        m_result = await db.execute(
+            select(DetectionResult).where(
+                DetectionResult.submission_id == matched_sub_id
+            )
+        )
+        matched_detection = m_result.scalar_one_or_none()
+        
+        matched_summary = (
+            f"Flagged for Plagiarism: Code is {int(fields['plag_final_score']*100)}% "
+            f"identical to another submission in this contest (ID: {str(submission_id)[:6]})."
+        )
+        
+        matched_fields = dict(
+            plag_token_similarity=fields["plag_token_similarity"],
+            plag_tfidf_similarity=fields["plag_tfidf_similarity"],
+            plag_ngram_similarity=fields["plag_ngram_similarity"],
+            plag_ast_similarity=fields["plag_ast_similarity"],
+            plag_final_score=fields["plag_final_score"],
+            plag_matched_submission_id=uuid.UUID(submission_id) if isinstance(submission_id, str) else submission_id,
+            is_plag_flagged=True
+        )
+        
+        if matched_detection:
+            # Update only if not previously flagged, or if new match is more similar
+            if not matched_detection.is_plag_flagged or fields["plag_final_score"] > matched_detection.plag_final_score:
+                for k, v in matched_fields.items():
+                    setattr(matched_detection, k, v)
+                
+                # Update explanation
+                if isinstance(matched_detection.explanation, dict):
+                    matched_detection.explanation["summary"] = matched_summary
+                    matched_detection.explanation["plagiarism"] = {
+                        "token_similarity": fields["plag_token_similarity"],
+                        "tfidf_similarity": fields["plag_tfidf_similarity"],
+                        "ngram_similarity": fields["plag_ngram_similarity"],
+                        "ast_similarity": fields["plag_ast_similarity"],
+                        "final_score": fields["plag_final_score"],
+                        "is_flagged": True,
+                        "matched_submission_id": str(submission_id),
+                        "verdict": "plagiarism"
+                    }
+        else:
+            new_matched_detection = DetectionResult(
+                submission_id=matched_sub_id,
+                ai_comment_density=0.0,
+                ai_line_length_score=0.0,
+                ai_indent_uniformity=0.0,
+                ai_var_naming_entropy=0.0,
+                ai_paste_burst_score=0.0,
+                ai_typing_anomaly=0.0,
+                ai_template_match=0.0,
+                ai_final_score=0.0,
+                is_ai_flagged=False,
+                explanation={
+                    "plagiarism": {
+                        "token_similarity": fields["plag_token_similarity"],
+                        "tfidf_similarity": fields["plag_tfidf_similarity"],
+                        "ngram_similarity": fields["plag_ngram_similarity"],
+                        "ast_similarity": fields["plag_ast_similarity"],
+                        "final_score": fields["plag_final_score"],
+                        "is_flagged": True,
+                        "matched_submission_id": str(submission_id),
+                        "verdict": "plagiarism"
+                    },
+                    "ai": {
+                        "comment_density": 0.0, "line_length_score": 0.0, "indent_uniformity": 0.0,
+                        "var_naming_entropy": 0.0, "paste_burst_score": 0.0, "typing_anomaly": 0.0,
+                        "template_match": 0.0, "final_score": 0.0, "is_flagged": False
+                    },
+                    "summary": matched_summary
+                },
+                **matched_fields
+            )
+            db.add(new_matched_detection)
+
     await db.flush()
     return detection
 
