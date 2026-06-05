@@ -172,30 +172,33 @@ The platform helps recruiters, universities, and coding assessment providers ide
 
 ## Live Demo
 
-Add your deployed application link here.
+https://codeshield-two.vercel.app/login
 
 ## Demo Video
 
-Add your demo video link here.
+https://drive.google.com/file/d/1r5qDnPLoKpnLJEL67wSb0pju0myGIkX7/view?usp=sharing
 
 ## Screenshots
 
-Add screenshots of:
-
 * Student Dashboard
-* Coding Environment
-* Assessment Page
+       <img width="1440" height="900" alt="Screenshot 2026-06-05 at 5 16 24 PM" src="https://github.com/user-attachments/assets/f0e398f2-1454-40f7-a101-6bec3e3abb7e" />
+      <img width="1440" height="900" alt="Screenshot 2026-06-05 at 5 16 57 PM" src="https://github.com/user-attachments/assets/0fe6ac40-8adb-40fb-a8ed-ee90ca58dc48" />
+
+* Coding Environment/ Assessment Page
+     <img width="1440" height="900" alt="Screenshot 2026-06-05 at 5 17 25 PM" src="https://github.com/user-attachments/assets/72be7ccc-bef0-4873-87d3-dff1160318b6" />
+  
 * Admin Dashboard
+     <img width="1440" height="900" alt="Screenshot 2026-06-05 at 5 18 18 PM" src="https://github.com/user-attachments/assets/09429ac7-403e-4a4a-878c-a44fb551b00c" />
+     <img width="1440" height="900" alt="Screenshot 2026-06-05 at 5 18 35 PM" src="https://github.com/user-attachments/assets/0b51d196-0ffc-46e9-a49f-8b471e8b68ce" />
+
 * Plagiarism Analysis View
+     <img width="1440" height="900" alt="Screenshot 2026-06-05 at 5 19 41 PM" src="https://github.com/user-attachments/assets/f471a835-b9cb-4ad3-b989-c218f97823d6" />
+     <img width="1440" height="900" alt="Screenshot 2026-06-05 at 5 19 25 PM" src="https://github.com/user-attachments/assets/1772b4ba-d2e3-4f78-a100-ab36a8c9d128" />
+     <img width="1440" height="900" alt="Screenshot 2026-06-05 at 5 19 06 PM" src="https://github.com/user-attachments/assets/3ea93fb1-240c-4c80-8a45-66f4795347ab" />
+
 * AI Detection Dashboard
-
-## Repository Structure
-
-/frontend
-/backend
-/ml-engine
-/database
-/docs
+      <img width="1440" height="900" alt="Screenshot 2026-06-05 at 5 20 05 PM" src="https://github.com/user-attachments/assets/6ad70ae2-ab7f-4db8-bfec-e44167de90b7" />
+  
 
 ## Future Roadmap
 
