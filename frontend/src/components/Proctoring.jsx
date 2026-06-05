@@ -138,16 +138,26 @@ export default function Proctoring({ sessionId, onDisqualified }) {
   const detectNoise = useCallback(() => {
     if (!analyser.current) return;
 
+    if (audioContext.current && audioContext.current.state === "suspended") {
+      audioContext.current.resume().catch((err) => console.log("Failed to resume AudioContext:", err));
+    }
+
     const bufferLength = analyser.current.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
-    analyser.current.getByteFrequencyData(dataArray);
+    analyser.current.getByteTimeDomainData(dataArray);
 
-    const average = dataArray.reduce((a, b) => a + b, 0) / bufferLength;
-
-    if (average > 40) {
-      monitoringSocket.logViolation("noise_detected", { level: average });
+    let peak = 0;
+    for (let i = 0; i < bufferLength; i++) {
+      const val = Math.abs(dataArray[i] - 128);
+      if (val > peak) {
+        peak = val;
+      }
     }
-  }, []);
+
+    if (peak > 15) {
+      triggerWarning("Noise detected. Please maintain silence.", "noise_detected");
+    }
+  }, [triggerWarning]);
 
   // Fullscreen enforcement
   const enterFullscreen = () => {
@@ -158,6 +168,9 @@ export default function Proctoring({ sessionId, onDisqualified }) {
       el.webkitRequestFullscreen();
     }
     setIsFullscreen(true);
+    if (audioContext.current && audioContext.current.state === "suspended") {
+      audioContext.current.resume().catch((err) => console.log("Failed to resume AudioContext:", err));
+    }
   };
 
   // Tab visibility change detection
@@ -182,10 +195,6 @@ export default function Proctoring({ sessionId, onDisqualified }) {
     };
 
     const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "c") {
-        triggerWarning("Copy shortcut detected.", "copy_attempt");
-        // triggerWarning already calls logViolation("copy_attempt"), don't double-send
-      }
       if ((e.altKey && e.key === "Tab") || (e.metaKey && e.key === "Tab")) {
         e.preventDefault();
         triggerWarning("Tab switching detected.", "tab_switch");
@@ -193,10 +202,22 @@ export default function Proctoring({ sessionId, onDisqualified }) {
       }
     };
 
+    const handleCopy = () => {
+      const selectedText = window.getSelection()?.toString() || "";
+      if (selectedText.trim()) {
+        window._lastCopyText = selectedText.trim();
+      }
+    };
+
     const handlePaste = (e) => {
-      const pastedText = e.clipboardData?.getData("text") || "";
+      const pastedText = (e.clipboardData?.getData("text") || "").trim();
       if (pastedText) {
-        monitoringSocket.logPaste(0, pastedText.length);
+        const isInternal = window._lastCopyText && window._lastCopyText === pastedText;
+        if (!isInternal) {
+          triggerWarning("Pasting code from outside the IDE is not allowed.", "copy_attempt");
+        } else {
+          monitoringSocket.logPaste(0, pastedText.length);
+        }
       }
     };
 
@@ -204,6 +225,7 @@ export default function Proctoring({ sessionId, onDisqualified }) {
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("contextmenu", handleContextMenu);
     document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("copy", handleCopy);
     document.addEventListener("paste", handlePaste);
 
     return () => {
@@ -211,6 +233,7 @@ export default function Proctoring({ sessionId, onDisqualified }) {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("contextmenu", handleContextMenu);
       document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("copy", handleCopy);
       document.removeEventListener("paste", handlePaste);
     };
   }, [triggerWarning]);
@@ -220,6 +243,19 @@ export default function Proctoring({ sessionId, onDisqualified }) {
     initCamera();
     enterFullscreen();
 
+    const resumeAudio = () => {
+      if (audioContext.current && audioContext.current.state === "suspended") {
+        audioContext.current.resume().then(() => {
+          console.log("AudioContext resumed successfully via user interaction");
+        }).catch((err) => {
+          console.warn("Failed to resume AudioContext:", err);
+        });
+      }
+    };
+
+    document.addEventListener("click", resumeAudio);
+    document.addEventListener("keydown", resumeAudio);
+
     detectionInterval.current = setInterval(() => {
       detectFace();
       detectNoise();
@@ -227,6 +263,8 @@ export default function Proctoring({ sessionId, onDisqualified }) {
 
     return () => {
       clearInterval(detectionInterval.current);
+      document.removeEventListener("click", resumeAudio);
+      document.removeEventListener("keydown", resumeAudio);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
@@ -389,7 +427,7 @@ const styles = {
   warningMsg: { color: "#e0e0e0", fontSize: "13px" },
   panel: {
     position: "fixed",
-    top: "60px", right: "16px",
+    bottom: "260px", right: "20px",
     width: "160px",
     background: "#1e1e1e",
     border: "1px solid #3a3a3a",

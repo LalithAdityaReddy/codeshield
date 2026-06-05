@@ -9,6 +9,7 @@ export function getLanguageLabel(lang) {
     javascript: "JavaScript",
     java: "Java",
     cpp: "C++",
+    c: "C",
   };
   return labels[lang] || lang;
 }
@@ -22,6 +23,7 @@ export function getMonacoLanguage(lang) {
     javascript: "javascript",
     java: "java",
     cpp: "cpp",
+    c: "c",
   };
   return map[lang] || "plaintext";
 }
@@ -58,6 +60,15 @@ int main() {
     ios_base::sync_with_stdio(false);
     cin.tie(NULL);
     
+    // Write your solution here
+    
+    return 0;
+}
+`,
+  c: `#include <stdio.h>
+#include <stdlib.h>
+
+int main() {
     // Write your solution here
     
     return 0;

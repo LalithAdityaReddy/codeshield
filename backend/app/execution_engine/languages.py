@@ -23,6 +23,12 @@ LANGUAGE_CONFIG = {
         "run_cmd": "./solution",
         "compile_cmd": "g++ -o solution solution.cpp",
     },
+    "c": {
+        "image": "gcc:12",
+        "filename": "solution.c",
+        "run_cmd": "./solution",
+        "compile_cmd": "gcc -o solution solution.c",
+    },
 }
 
 SUPPORTED_LANGUAGES = list(LANGUAGE_CONFIG.keys())

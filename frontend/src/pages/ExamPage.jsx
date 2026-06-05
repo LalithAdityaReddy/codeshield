@@ -8,9 +8,9 @@ import { formatTime } from "../utils/formatTime";
 import useAuthStore from "../store/authStore";
 import Proctoring from "../components/Proctoring";
 import { monitoringSocket } from "../sockets/monitoringSocket";
-import { getStarterCode, CP_STARTER } from "../utils/codeHelpers";
+import { getStarterCode, CP_STARTER, getMonacoLanguage } from "../utils/codeHelpers";
 
-const LANGUAGES = ["python3", "javascript", "java", "cpp"];
+const LANGUAGES = ["python3", "javascript", "java", "cpp", "c"];
 
 
 export default function ExamPage() {
@@ -279,22 +279,36 @@ export default function ExamPage() {
         {/* Right — editor + bottom panel */}
         <div style={{ flex: 1, ...styles.rightPanel }}>
           <div style={styles.editorHeader}>
-            <span style={styles.editorTabActive}>Code</span>
-            <select value={language} onChange={(e) => handleLanguageChange(e.target.value)} style={styles.langSelect}>
-              {LANGUAGES.map((lang) => (
-                <option key={lang} value={lang}>
-                  {lang === "python3" ? "Python 3" : lang === "cpp" ? "C++" : lang === "java" ? "Java" : "JavaScript"}
-                </option>
-              ))}
-            </select>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <span style={styles.editorTabActive}>Code</span>
+              <select value={language} onChange={(e) => handleLanguageChange(e.target.value)} style={styles.langSelect}>
+                {LANGUAGES.map((lang) => (
+                  <option key={lang} value={lang}>
+                    {lang === "python3" ? "Python 3" :
+                     lang === "cpp" ? "C++" :
+                     lang === "c" ? "C" :
+                     lang === "java" ? "Java" : "JavaScript"}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div style={{ flex: 1, overflow: "hidden" }}>
             <Editor
               height="100%"
-              language={language === "python3" ? "python" : language}
+              language={getMonacoLanguage(language)}
               value={code}
               onMount={(editor, monaco) => {
+                editor.onKeyDown((e) => {
+                  if ((e.ctrlKey || e.metaKey) && (e.keyCode === monaco.KeyCode.KeyC || e.keyCode === monaco.KeyCode.KeyX)) {
+                    const selection = editor.getSelection();
+                    const selectedText = editor.getModel().getValueInRange(selection);
+                    if (selectedText) {
+                      window._lastCopyText = selectedText.trim();
+                    }
+                  }
+                });
                 editor.onDidPaste((e) => {
                   const pastedText = editor.getModel().getValueInRange(e.range);
                   if (pastedText && pastedText.length > 10) {
@@ -369,6 +383,7 @@ export default function ExamPage() {
                         <span style={{ color: "#555", fontSize: "12px", fontWeight: "600", marginBottom: "4px", display: "block" }}>READ INPUT FROM STDIN · PRINT OUTPUT TO STDOUT</span>
                         {language === "python3" && <pre style={styles.tipCode}>{`n = int(input())\na = list(map(int, input().split()))\nprint(sum(a))`}</pre>}
                         {language === "cpp" && <pre style={styles.tipCode}>{`int n; cin >> n;\nvector<int> a(n);\nfor(auto &x : a) cin >> x;\ncout << accumulate(a.begin(),a.end(),0) << "\\n";`}</pre>}
+                        {language === "c" && <pre style={styles.tipCode}>{`int n; scanf("%d", &n);\nint *a = malloc(n * sizeof(int));\nfor(int i=0; i<n; i++) scanf("%d", &a[i]);\n// process and printf`}</pre>}
                         {language === "java" && <pre style={styles.tipCode}>{`Scanner sc = new Scanner(System.in);\nint n = sc.nextInt();\n// read and process`}</pre>}
                         {language === "javascript" && <pre style={styles.tipCode}>{`const n = parseInt(input());\n// process and console.log(answer)`}</pre>}
                       </div>
