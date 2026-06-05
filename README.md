@@ -1,4 +1,3 @@
-# skills-copilot-codespaces-vscode
 # CodeShield
 
 ### AI-Powered Coding Assessment Integrity Platform
